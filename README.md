@@ -145,7 +145,11 @@ No mouse required.
 - **Atomic switching.** A new symlink is created at a temp path and `rename(2)`d
   over the old one — an all-or-nothing swap, never a half state.
 - **Metadata is UI-only.** `~/.config/claude-switcher/profiles.json` stores display
-  order, last-used times and cached emails. It never decides what's active.
+  order and cached emails. It never decides what's active.
+- **Last-used reflects real usage.** It's derived from the mtime of the files
+  Claude writes when a profile is actually used (`.claude.json`, `history.jsonl`,
+  `sessions/`, `projects/`) — not from when you selected the profile. Switching
+  to a profile without using it does not change its last-used time.
 - **Local detection only.** Email and "authenticated" status are read from the
   files Claude already writes (`.claude.json`, `.credentials.json`). No API
   calls, no quota checks, no network.
@@ -159,7 +163,6 @@ Metadata schema:
     {
       "name": "work",
       "path": "~/.claude-work",
-      "lastUsed": "2026-07-04T09:21:00Z",
       "email": "paul@nhost.io"
     }
   ]

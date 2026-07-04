@@ -7,7 +7,6 @@
 use std::fs;
 use std::path::Path;
 
-use chrono::{DateTime, Utc};
 use serde::{Deserialize, Serialize};
 
 use crate::error::{Error, Result};
@@ -19,9 +18,8 @@ pub struct ProfileMeta {
     pub name: String,
     /// Stored in portable `~`-relative form when possible.
     pub path: String,
-    #[serde(default, skip_serializing_if = "Option::is_none", rename = "lastUsed")]
-    pub last_used: Option<DateTime<Utc>>,
     /// Cached email, refreshed from `.claude.json` whenever we detect it live.
+    /// (Last-used is derived from filesystem activity, not stored here.)
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub email: Option<String>,
 }
@@ -95,7 +93,6 @@ mod tests {
             profiles: vec![ProfileMeta {
                 name: "work".into(),
                 path: "~/.claude-work".into(),
-                last_used: Some(Utc::now()),
                 email: Some("paul@nhost.io".into()),
             }],
         };

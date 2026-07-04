@@ -7,9 +7,14 @@
 //!     disk (Linux); on macOS the token lives in the Keychain, so the presence
 //!     of `oauthAccount` is the reliable signal instead.
 
-use std::path::Path;
+use std::path::{Path, PathBuf};
 
+use chrono::{DateTime, Utc};
 use serde::Deserialize;
+
+/// Files/dirs Claude touches when a profile is actually *used* (a session runs,
+/// a prompt is sent, state is written). Their newest mtime is our "last used".
+const ACTIVITY_PATHS: [&str; 4] = [".claude.json", "history.jsonl", "sessions", "projects"];
 
 /// What we could learn about the account backing a profile directory.
 #[derive(Debug, Clone, Default, PartialEq, Eq)]
@@ -57,6 +62,22 @@ pub fn inspect(dir: &Path, home: &Path) -> Account {
     account
 }
 
+/// When a profile was last *used*, inferred from filesystem activity rather
+/// than from when it was selected. Returns `None` if nothing has been touched.
+pub fn last_used(dir: &Path, home: &Path) -> Option<DateTime<Utc>> {
+    let mut candidates: Vec<PathBuf> = ACTIVITY_PATHS.iter().map(|f| dir.join(f)).collect();
+    // The default ~/.claude profile keeps its state file beside the directory.
+    if dir == home.join(".claude") {
+        candidates.push(home.join(".claude.json"));
+    }
+    candidates
+        .iter()
+        .filter_map(|p| std::fs::metadata(p).ok())
+        .filter_map(|m| m.modified().ok())
+        .map(DateTime::<Utc>::from)
+        .max()
+}
+
 fn claude_json_candidates(dir: &Path, home: &Path) -> Vec<std::path::PathBuf> {
     let mut candidates = vec![dir.join(".claude.json")];
     // The default profile keeps its state file beside the directory.
@@ -97,5 +118,18 @@ mod tests {
     fn empty_dir_is_unauthenticated() {
         let dir = tempdir().unwrap();
         assert_eq!(inspect(dir.path(), dir.path()), Account::default());
+    }
+
+    #[test]
+    fn last_used_none_when_untouched() {
+        let dir = tempdir().unwrap();
+        assert_eq!(last_used(dir.path(), dir.path()), None);
+    }
+
+    #[test]
+    fn last_used_reflects_activity_file() {
+        let dir = tempdir().unwrap();
+        std::fs::write(dir.path().join("history.jsonl"), "{}").unwrap();
+        assert!(last_used(dir.path(), dir.path()).is_some());
     }
 }

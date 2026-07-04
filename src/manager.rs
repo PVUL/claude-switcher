@@ -10,8 +10,6 @@
 use std::fs;
 use std::path::{Path, PathBuf};
 
-use chrono::Utc;
-
 use crate::detect;
 use crate::error::{Error, Result};
 use crate::metadata::{Metadata, ProfileMeta};
@@ -65,11 +63,16 @@ impl Manager {
                 } else {
                     detect::Account::default()
                 };
+                let last_used = if exists {
+                    detect::last_used(&path, &self.paths.home)
+                } else {
+                    None
+                };
                 Profile {
                     name: m.name.clone(),
                     email: account.email.clone().or_else(|| m.email.clone()),
                     raw_path: m.path.clone(),
-                    last_used: m.last_used,
+                    last_used,
                     exists,
                     authenticated: account.authenticated,
                     active: active == Some(m.name.as_str()),
@@ -99,7 +102,6 @@ impl Manager {
         self.meta.profiles.push(ProfileMeta {
             name: name.to_string(),
             path: self.paths.contract(&path),
-            last_used: None,
             email: None,
         });
         self.refresh_email(name);
@@ -140,7 +142,6 @@ impl Manager {
         self.meta.profiles.push(ProfileMeta {
             name: name.to_string(),
             path: self.paths.contract(path),
-            last_used: None,
             email: None,
         });
         self.refresh_email(name);
@@ -247,9 +248,6 @@ impl Manager {
         symlink::atomic_symlink(&target, &self.paths.active_link())?;
 
         self.meta.active = Some(name.to_string());
-        if let Some(m) = self.meta.find_mut(name) {
-            m.last_used = Some(Utc::now());
-        }
         self.refresh_email(name);
         self.save()
     }
