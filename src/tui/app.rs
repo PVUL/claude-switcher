@@ -69,6 +69,19 @@ pub struct App<'m> {
 /// Minimum gap between manual usage refreshes.
 const REFRESH_COOLDOWN_SECS: i64 = 60;
 
+/// Human phrasing of an interval in seconds, e.g. 600 -> "10 min".
+fn format_interval(secs: u64) -> String {
+    if secs >= 3600 && secs % 3600 == 0 {
+        format!("{} hr", secs / 3600)
+    } else if secs >= 60 && secs % 60 == 0 {
+        format!("{} min", secs / 60)
+    } else if secs >= 60 {
+        format!("{} min {} sec", secs / 60, secs % 60)
+    } else {
+        format!("{secs} sec")
+    }
+}
+
 impl<'m> App<'m> {
     pub fn new(manager: &'m mut Manager) -> Self {
         let profiles = manager.profiles();
@@ -290,10 +303,19 @@ impl<'m> App<'m> {
     pub fn toggle_auto_refresh(&mut self) {
         self.auto_refresh = !self.auto_refresh;
         let _ = self.manager.set_auto_refresh(self.auto_refresh);
-        self.status = Some(format!(
-            "Auto-refresh {}",
-            if self.auto_refresh { "on" } else { "off" }
-        ));
+        self.status = Some(if self.auto_refresh {
+            let config = {
+                let paths = self.manager.paths();
+                paths.contract(&paths.metadata_file())
+            };
+            format!(
+                "Auto-refresh on · every {} · change pollIntervalSecs in {}",
+                format_interval(self.poll_interval_secs),
+                config
+            )
+        } else {
+            "Auto-refresh off".to_string()
+        });
     }
 
     /// Manual refresh ('r'): re-fetch usage, debounced to once per minute. A
@@ -539,6 +561,15 @@ mod tests {
         assert!(mgr.settings().auto_refresh);
         let app = App::new(&mut mgr);
         assert_eq!(app.auto_refresh_label(), "auto-refresh: on");
+    }
+
+    #[test]
+    fn interval_phrasing() {
+        assert_eq!(format_interval(600), "10 min");
+        assert_eq!(format_interval(60), "1 min");
+        assert_eq!(format_interval(3600), "1 hr");
+        assert_eq!(format_interval(90), "1 min 30 sec");
+        assert_eq!(format_interval(30), "30 sec");
     }
 
     #[test]
