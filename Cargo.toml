@@ -7,7 +7,7 @@ description = "Switch between multiple isolated Claude Code accounts using a sin
 authors = ["Paul Yun <paul.a.yun@gmail.com>"]
 license = "MIT"
 readme = "README.md"
-repository = "https://github.com/paulyun/claudesub"
+repository = "https://github.com/PVUL/claudesub"
 keywords = ["claude", "cli", "profile", "tui", "symlink"]
 categories = ["command-line-utilities"]
 
