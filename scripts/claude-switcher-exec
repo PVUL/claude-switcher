@@ -1,15 +1,21 @@
 #!/bin/sh
 # claude-switcher-exec — launch Claude Code using whichever profile
-# claude-switcher has activated. The ~/.claude-switcher symlink is maintained by
-# `claude-switcher`; every consumer that runs this wrapper (or exports the same
-# variable) automatically follows the selected profile.
+# claude-switcher has activated.
 #
-# Most people don't need this: exporting CLAUDE_CONFIG_DIR in your shell (see
-# `claude-switcher env`) makes the plain `claude` command follow the profile.
-# This wrapper exists for tools that take an *executable path* rather than an
-# environment, e.g. pi-claude-bridge's pathToClaudeCodeExecutable.
+# IMPORTANT: we export the *resolved* target of the ~/.claude-switcher symlink,
+# not the symlink path itself. On macOS, Claude Code keys the OAuth token in the
+# Keychain by a hash of the literal CLAUDE_CONFIG_DIR string; if we passed the
+# (unchanging) symlink path, every profile would share one token slot and
+# switching accounts would not switch the actual login. Resolving to the real
+# per-profile directory gives each account its own token.
+#
+# Most people alias `claude` to this. It also serves tools that take an
+# executable path (e.g. pi-claude-bridge's pathToClaudeCodeExecutable).
 #
 # Usage:
 #   claude-switcher-exec [any claude args...]
-export CLAUDE_CONFIG_DIR="$HOME/.claude-switcher"
+link="$HOME/.claude-switcher"
+target="$(readlink "$link" 2>/dev/null || true)"
+[ -n "$target" ] || target="$link"
+export CLAUDE_CONFIG_DIR="$target"
 exec claude "$@"
