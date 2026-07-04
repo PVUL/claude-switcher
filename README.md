@@ -295,3 +295,7 @@ Module layout:
 ## License
 
 MIT — see [LICENSE](LICENSE).
+
+## Ref
+
+Inspired by https://codelynx.dev/posts/claude-code-usage-limits-statusline
