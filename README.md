@@ -156,7 +156,7 @@ A freshly added profile is an empty config dir, so it shows as *not signed in*:
 ```sh
 claude-switcher add work
 claude-switcher switch work
-claude               # follows the active profile via CLAUDE_CONFIG_DIR
+claude                        # follows the active profile via CLAUDE_CONFIG_DIR
 ```
 
 Once signed in, `claude-switcher` reads the account email from the profile's
