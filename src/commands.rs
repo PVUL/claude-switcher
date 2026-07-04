@@ -134,8 +134,8 @@ fn list(mgr: &Manager, json: bool) -> Result<()> {
     for p in &profiles {
         let marker = if p.active { "*" } else { " " };
         let mut line = format!("{marker} {}", p.name);
-        if let Some(email) = &p.email {
-            line.push_str(&format!(" ({email})"));
+        if let Some(id) = p.identity() {
+            line.push_str(&format!(" ({id})"));
         }
         println!("{line}");
         println!("      path:          {}", p.raw_path);
@@ -169,8 +169,8 @@ fn usage(mgr: &Manager, json: bool) -> Result<()> {
         }
         let marker = if p.active { "*" } else { " " };
         let mut header = format!("{marker} {}", p.name);
-        if let Some(email) = &p.email {
-            header.push_str(&format!(" ({email})"));
+        if let Some(id) = p.identity() {
+            header.push_str(&format!(" ({id})"));
         }
         println!("{header}");
         match usage {
@@ -223,6 +223,7 @@ fn usage_json(p: &Profile, usage: Option<&crate::usage::Usage>) -> serde_json::V
     serde_json::json!({
         "name": p.name,
         "email": p.email,
+        "plan": p.plan,
         "active": p.active,
         "available": usage.is_some(),
         "fiveHour": usage.and_then(|u| win(u.five_hour.as_ref())),
@@ -232,8 +233,8 @@ fn usage_json(p: &Profile, usage: Option<&crate::usage::Usage>) -> serde_json::V
 }
 
 fn describe(p: &Profile) -> String {
-    match &p.email {
-        Some(email) => format!("{} ({email})", p.name),
+    match p.identity() {
+        Some(id) => format!("{} ({id})", p.name),
         None => p.name.clone(),
     }
 }
@@ -272,6 +273,7 @@ fn profiles_to_json(profiles: &[Profile]) -> String {
                 "name": p.name,
                 "path": p.raw_path,
                 "email": p.email,
+                "plan": p.plan,
                 "active": p.active,
                 "exists": p.exists,
                 "authenticated": p.authenticated,

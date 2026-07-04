@@ -100,11 +100,8 @@ fn draw_list(f: &mut Frame, area: Rect, app: &App) {
                     }),
                 ),
             ];
-            if let Some(email) = &p.email {
-                spans.push(Span::styled(
-                    format!(" ({email})"),
-                    secondary(),
-                ));
+            if let Some(id) = p.identity() {
+                spans.push(Span::styled(format!(" ({id})"), secondary()));
             }
             let mut tags = Vec::new();
             if !p.exists {

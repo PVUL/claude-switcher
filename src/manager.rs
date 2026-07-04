@@ -86,6 +86,7 @@ impl Manager {
                 Profile {
                     name: m.name.clone(),
                     email: account.email.clone().or_else(|| m.email.clone()),
+                    plan: account.plan.clone(),
                     raw_path: m.path.clone(),
                     last_used,
                     exists,

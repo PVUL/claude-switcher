@@ -20,6 +20,8 @@ const ACTIVITY_PATHS: [&str; 4] = [".claude.json", "history.jsonl", "sessions", 
 #[derive(Debug, Clone, Default, PartialEq, Eq)]
 pub struct Account {
     pub email: Option<String>,
+    /// Brief plan label, e.g. "Pro", "Max 5x", "Team", "Enterprise".
+    pub plan: Option<String>,
     pub authenticated: bool,
 }
 
@@ -33,6 +35,47 @@ struct ClaudeJson {
 struct OauthAccount {
     #[serde(rename = "emailAddress")]
     email_address: Option<String>,
+    #[serde(rename = "organizationType")]
+    organization_type: Option<String>,
+    #[serde(rename = "userRateLimitTier")]
+    user_rate_limit_tier: Option<String>,
+}
+
+/// Derive a short plan label from the OAuth account fields.
+fn plan_label(org_type: Option<&str>, rate_tier: Option<&str>) -> Option<String> {
+    if let Some(org) = org_type {
+        let base = org.strip_prefix("claude_").unwrap_or(org);
+        match base {
+            "pro" => return Some("Pro".to_string()),
+            "team" => return Some("Team".to_string()),
+            "enterprise" => return Some("Enterprise".to_string()),
+            "max" => return Some(max_label(rate_tier)),
+            _ => {}
+        }
+    }
+    // Fall back to inferring a Max tier from the rate-limit tier.
+    if let Some(r) = rate_tier {
+        if r.contains("max_20x") {
+            return Some("Max 20x".to_string());
+        }
+        if r.contains("max_5x") {
+            return Some("Max 5x".to_string());
+        }
+    }
+    // Last resort: title-case whatever organization type we saw.
+    org_type.and_then(|o| {
+        let base = o.strip_prefix("claude_").unwrap_or(o);
+        let mut chars = base.chars();
+        chars.next().map(|f| f.to_uppercase().collect::<String>() + chars.as_str())
+    })
+}
+
+fn max_label(rate_tier: Option<&str>) -> String {
+    match rate_tier {
+        Some(r) if r.contains("20x") => "Max 20x".to_string(),
+        Some(r) if r.contains("5x") => "Max 5x".to_string(),
+        _ => "Max".to_string(),
+    }
 }
 
 /// Inspect a profile directory. `home` is used only to cover the special case
@@ -50,6 +93,10 @@ pub fn inspect(dir: &Path, home: &Path) -> Account {
             if let Ok(parsed) = serde_json::from_str::<ClaudeJson>(&text) {
                 if let Some(oauth) = parsed.oauth_account {
                     account.authenticated = true;
+                    account.plan = plan_label(
+                        oauth.organization_type.as_deref(),
+                        oauth.user_rate_limit_tier.as_deref(),
+                    );
                     if let Some(email) = oauth.email_address {
                         account.email = Some(email);
                     }
@@ -103,6 +150,42 @@ mod tests {
         let account = inspect(dir.path(), dir.path());
         assert_eq!(account.email.as_deref(), Some("paul@nhost.io"));
         assert!(account.authenticated);
+    }
+
+    #[test]
+    fn detects_plan() {
+        let dir = tempdir().unwrap();
+        std::fs::write(
+            dir.path().join(".claude.json"),
+            r#"{"oauthAccount":{"emailAddress":"a@b.co","organizationType":"claude_team","userRateLimitTier":"default_claude_max_5x"}}"#,
+        )
+        .unwrap();
+        // organizationType wins: a team member is "Team", not "Max 5x".
+        assert_eq!(inspect(dir.path(), dir.path()).plan.as_deref(), Some("Team"));
+    }
+
+    #[test]
+    fn plan_label_variants() {
+        assert_eq!(plan_label(Some("claude_pro"), None).as_deref(), Some("Pro"));
+        assert_eq!(plan_label(Some("claude_team"), None).as_deref(), Some("Team"));
+        assert_eq!(
+            plan_label(Some("claude_enterprise"), None).as_deref(),
+            Some("Enterprise")
+        );
+        assert_eq!(
+            plan_label(Some("claude_max"), Some("default_claude_max_20x")).as_deref(),
+            Some("Max 20x")
+        );
+        assert_eq!(
+            plan_label(Some("claude_max"), Some("default_claude_max_5x")).as_deref(),
+            Some("Max 5x")
+        );
+        // Individual Max with no org type, inferred from the rate tier.
+        assert_eq!(
+            plan_label(None, Some("default_claude_max_20x")).as_deref(),
+            Some("Max 20x")
+        );
+        assert_eq!(plan_label(None, None), None);
     }
 
     #[test]

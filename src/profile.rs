@@ -17,9 +17,23 @@ pub struct Profile {
     pub raw_path: String,
     pub last_used: Option<DateTime<Utc>>,
     pub email: Option<String>,
+    /// Brief plan label, e.g. "Pro", "Max 5x", "Team".
+    pub plan: Option<String>,
     pub exists: bool,
     pub authenticated: bool,
     pub active: bool,
+}
+
+impl Profile {
+    /// The parenthetical identity shown after the name: "email · Plan".
+    pub fn identity(&self) -> Option<String> {
+        match (&self.email, &self.plan) {
+            (Some(e), Some(p)) => Some(format!("{e} · {p}")),
+            (Some(e), None) => Some(e.clone()),
+            (None, Some(p)) => Some(p.clone()),
+            (None, None) => None,
+        }
+    }
 }
 
 /// Validate a profile name. Names become part of a directory name and a
