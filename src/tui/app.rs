@@ -78,6 +78,15 @@ impl<'m> App<'m> {
             Err(e) => self.status = Some(format!("Error: {e}")),
         }
         self.reload();
+        // The list reorders (active moves to the top); keep the highlight on
+        // the profile we just switched to rather than a fixed row index.
+        self.select_by_name(&name);
+    }
+
+    fn select_by_name(&mut self, name: &str) {
+        if let Some(idx) = self.profiles.iter().position(|p| p.name == name) {
+            self.selected = idx;
+        }
     }
 
     pub fn begin_add(&mut self) {
@@ -136,9 +145,7 @@ impl<'m> App<'m> {
                 self.status = Some(msg);
                 self.mode = Mode::Normal;
                 self.reload();
-                if let Some(idx) = self.profiles.iter().position(|p| p.name == name) {
-                    self.selected = idx;
-                }
+                self.select_by_name(&name);
             }
             // Keep the input open so the user can fix the name.
             Err(e) => self.status = Some(format!("Error: {e}")),

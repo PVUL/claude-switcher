@@ -50,9 +50,13 @@ impl Manager {
     }
 
     /// Build the enriched, display-ready list of profiles.
+    ///
+    /// Ordered for display: the active profile first, then the rest by most
+    /// recently used, with never-used profiles at the bottom.
     pub fn profiles(&self) -> Vec<Profile> {
         let active = self.meta.active.as_deref();
-        self.meta
+        let mut profiles: Vec<Profile> = self
+            .meta
             .profiles
             .iter()
             .map(|m| {
@@ -79,7 +83,20 @@ impl Manager {
                     path,
                 }
             })
-            .collect()
+            .collect();
+        profiles.sort_by(|a, b| {
+            // Active always first.
+            b.active.cmp(&a.active).then_with(|| {
+                // Then most-recently-used first; never-used (None) last.
+                match (a.last_used, b.last_used) {
+                    (Some(x), Some(y)) => y.cmp(&x),
+                    (Some(_), None) => std::cmp::Ordering::Less,
+                    (None, Some(_)) => std::cmp::Ordering::Greater,
+                    (None, None) => a.name.cmp(&b.name),
+                }
+            })
+        });
+        profiles
     }
 
     pub fn active(&self) -> Option<Profile> {

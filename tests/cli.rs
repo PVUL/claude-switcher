@@ -223,6 +223,41 @@ fn adopt_scan_finds_all_unmanaged_configs() {
 }
 
 #[test]
+fn list_orders_active_first_then_by_recency() {
+    use std::time::{Duration, SystemTime};
+    let h = Harness::new();
+    for name in ["old", "recent", "never", "active"] {
+        let dir = h.home.join(format!(".claude-{name}"));
+        std::fs::create_dir_all(&dir).unwrap();
+        h.run(&["adopt", name, "--path", dir.to_str().unwrap()]);
+    }
+    // Give three of them activity files with distinct mtimes.
+    let now = SystemTime::now();
+    let stamp = |name: &str, ago: u64| {
+        let p = h.home.join(format!(".claude-{name}/history.jsonl"));
+        std::fs::write(&p, "{}").unwrap();
+        let t = now - Duration::from_secs(ago);
+        filetime::set_file_mtime(&p, filetime::FileTime::from_system_time(t)).ok();
+    };
+    stamp("active", 10_000);
+    stamp("old", 5_000);
+    stamp("recent", 100);
+    // 'never' has no activity file.
+    h.run(&["switch", "active"]);
+
+    let out = h.run(&["list", "--json"]);
+    let v: serde_json::Value = serde_json::from_str(&stdout(&out)).unwrap();
+    let order: Vec<&str> = v
+        .as_array()
+        .unwrap()
+        .iter()
+        .map(|p| p["name"].as_str().unwrap())
+        .collect();
+    // active (pinned) -> recent -> old -> never (no usage, last).
+    assert_eq!(order, vec!["active", "recent", "old", "never"], "got {order:?}");
+}
+
+#[test]
 fn bootstrap_shows_current_account_on_first_run() {
     let h = Harness::new();
     // Existing default config the user is already signed in to, nothing managed.
