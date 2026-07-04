@@ -90,14 +90,19 @@ impl<'m> App<'m> {
         let active_link = manager.paths().active_link();
         let auto_refresh = manager.settings().auto_refresh;
         let poll_interval_secs = manager.settings().poll_interval_secs;
+        // Start on the active profile's row (profile `i` is at row `i + 1`) so
+        // the cursor lands on the account in use; fall back to the Refresh
+        // control at row 0 when nothing is active.
+        let selected = profiles
+            .iter()
+            .position(|p| p.active)
+            .map_or(0, |i| i + 1);
         let (usage_tx, usage_rx) = mpsc::channel();
         let mut app = App {
             manager,
             profiles,
             order,
-            // Start focused on the Refresh control so every profile row is
-            // shown unencumbered by selection styling.
-            selected: 0,
+            selected,
             mode: Mode::Normal,
             status: None,
             should_quit: false,
@@ -218,7 +223,9 @@ impl<'m> App<'m> {
         if self.is_refreshing() {
             "updating…".to_string()
         } else {
-            format!("updated {}", self.last_updated.format("%-I:%M%P"))
+            // Show seconds so "updated" reflects the exact refresh moment rather
+            // than a minute that looks up to ~1 min behind the wall clock.
+            format!("updated {}", self.last_updated.format("%-I:%M:%S%P"))
         }
     }
 
@@ -251,9 +258,10 @@ impl<'m> App<'m> {
         self.profiles.len() + 1
     }
 
-    fn reload(&mut self) {
-        // Re-fetch live state but preserve the session's display order so the
-        // list doesn't reshuffle when the active profile changes.
+    /// Re-read profile metadata from disk (email, plan, auth, and `last_used`)
+    /// while preserving the session's display order so the list doesn't
+    /// reshuffle when the active profile changes or a profile is added/removed.
+    fn rebuild_profiles(&mut self) {
         let fresh = self.manager.profiles();
         let mut ordered: Vec<Profile> = Vec::with_capacity(fresh.len());
         for name in &self.order {
@@ -274,7 +282,13 @@ impl<'m> App<'m> {
         if self.selected > self.profiles.len() {
             self.selected = self.profiles.len();
         }
-        // Fetch usage for any profile added since the session started.
+    }
+
+    /// Reload after a mutation (switch/add/rename/delete): refresh metadata and
+    /// start usage lookups for any profile added since the session began
+    /// (`begin_usage_fetch` skips profiles already in the usage map).
+    fn reload(&mut self) {
+        self.rebuild_profiles();
         let profiles = self.profiles.clone();
         for p in &profiles {
             self.begin_usage_fetch(p);
@@ -282,10 +296,13 @@ impl<'m> App<'m> {
     }
 
     pub fn select_next(&mut self) {
+        // Moving dismisses any transient status (e.g. the post-switch caveat).
+        self.status = None;
         self.selected = (self.selected + 1) % self.row_count();
     }
 
     pub fn select_prev(&mut self) {
+        self.status = None;
         let n = self.row_count();
         self.selected = (self.selected + n - 1) % n;
     }
@@ -309,7 +326,7 @@ impl<'m> App<'m> {
                 paths.contract(&paths.metadata_file())
             };
             format!(
-                "Auto-refresh on · every {} · change pollIntervalSecs in {}",
+                "Every {} · see pollIntervalSecs in {}",
                 format_interval(self.poll_interval_secs),
                 config
             )
@@ -351,6 +368,9 @@ impl<'m> App<'m> {
     /// and marks the snapshot for re-persisting once complete.
     fn do_refresh(&mut self) {
         self.last_updated = Local::now();
+        // Re-read profile metadata (notably `last_used`) from disk alongside the
+        // usage %, so an active account's "last used" advances as it's used.
+        self.rebuild_profiles();
         self.usage.clear();
         let profiles = self.profiles.clone();
         for p in &profiles {
@@ -364,7 +384,14 @@ impl<'m> App<'m> {
             return;
         };
         match self.manager.switch(&name) {
-            Ok(()) => self.status = Some(format!("Switched to '{name}'.")),
+            // The symlink is repointed immediately, but sessions/shells that
+            // captured the old account at launch won't follow it — hence the
+            // caveat. It stays until the user moves (select_next/prev clear it).
+            Ok(()) => {
+                self.status = Some(format!(
+                    "Switched {name} — relaunch Claude in this terminal or start new session."
+                ))
+            }
             Err(e) => self.status = Some(format!("Error: {e}")),
         }
         self.reload();
@@ -508,6 +535,29 @@ mod tests {
         app.begin_delete();
         app.confirm_delete();
         assert_eq!(app.profiles().len(), 1);
+    }
+
+    #[test]
+    fn opens_focused_on_the_active_profile() {
+        let dir = tempdir().unwrap();
+        let mut mgr = manager(dir.path());
+        {
+            let mut app = App::new(&mut mgr);
+            for name in ["a", "b", "c"] {
+                app.begin_add();
+                for ch in name.chars() {
+                    app.input_push(ch);
+                }
+                app.commit_input();
+            }
+            // Make "b" the active profile.
+            app.selected = app.profiles().iter().position(|p| p.name == "b").unwrap() + 1;
+            app.switch_selected();
+        }
+        // A freshly opened TUI lands on the active profile, not the Refresh row.
+        let app = App::new(&mut mgr);
+        assert!(!app.header_focused());
+        assert_eq!(app.selected_profile().unwrap().name, "b");
     }
 
     #[test]

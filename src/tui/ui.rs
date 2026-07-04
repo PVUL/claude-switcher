@@ -30,6 +30,19 @@ fn secondary() -> Style {
 pub const CHROME_LINES: u16 = 6;
 /// Each profile occupies this many rows (name, 5h bar, 7d bar, last-used).
 pub const ROWS_PER_PROFILE: u16 = 4;
+/// The widest the UI is ever rendered. On a wide terminal the bordered frame is
+/// clamped to this (and left-aligned) so it doesn't stretch out unattractively;
+/// it's sized to hold the longest line (a usage bar plus its reset phrase).
+pub const MAX_WIDTH: u16 = 80;
+
+/// Clamp a full-terminal rect to at most `MAX_WIDTH` columns, left-aligned at
+/// the terminal origin. Narrower terminals are returned unchanged.
+fn clamp_width(area: Rect) -> Rect {
+    Rect {
+        width: area.width.min(MAX_WIDTH),
+        ..area
+    }
+}
 
 pub fn draw(f: &mut Frame, app: &App) {
     let chunks = Layout::default()
@@ -39,7 +52,7 @@ pub fn draw(f: &mut Frame, app: &App) {
             Constraint::Min(2),    // profile list
             Constraint::Length(1), // footer / prompt
         ])
-        .split(f.area());
+        .split(clamp_width(f.area()));
 
     draw_title(f, chunks[0], app);
     draw_list(f, chunks[1], app);
@@ -57,7 +70,7 @@ fn draw_title(f: &mut Frame, area: Rect, app: &App) {
     };
     let marker = if app.header_focused() { "› " } else { "" };
     let line = Line::from(vec![
-        Span::styled(" Claude Accounts", Style::default().add_modifier(Modifier::BOLD)),
+        Span::styled(" Claude Switcher", Style::default().add_modifier(Modifier::BOLD)),
         Span::raw("   "),
         Span::styled(app.updated_label(), secondary()),
         Span::raw("    "),
@@ -121,7 +134,7 @@ fn draw_list(f: &mut Frame, area: Rect, app: &App) {
     }
 
     let list = List::new(items)
-        .block(Block::default().borders(Borders::ALL).title(" Profiles "))
+        .block(Block::default().borders(Borders::ALL).title(" Accounts "))
         // Keep the text fully legible: just a marker + bold, no washed-out
         // background or reversed colors.
         .highlight_style(Style::default().add_modifier(Modifier::BOLD))
@@ -190,10 +203,16 @@ fn threshold_color(pct: i64) -> Color {
     }
 }
 
-/// e.g. "resets in 3h 36m (14:50)".
+/// Widest relative-reset countdown we render (e.g. "resets in 23h 59m"). The
+/// countdown is left-padded to this so the "(clock)" that follows lines up in
+/// the same column on a profile's 5h and 7d rows.
+const RESET_REL_WIDTH: usize = 17;
+
+/// e.g. "resets in 3h 36m  (2:50pm)". The countdown is padded to a fixed width
+/// so the parenthesized clock time aligns vertically across the two rows.
 fn reset_phrase(window: &crate::usage::Window) -> String {
     match (crate::usage::resets_in(window), crate::usage::reset_clock(window)) {
-        (Some(rel), Some(clock)) => format!("{rel} ({clock})"),
+        (Some(rel), Some(clock)) => format!("{rel:<w$} ({clock})", w = RESET_REL_WIDTH),
         (Some(rel), None) => rel,
         _ => String::new(),
     }
@@ -227,7 +246,7 @@ fn draw_footer(f: &mut Frame, area: Rect, app: &App) {
                 // Keys depend on focus: on the header Refresh control you can't
                 // switch/rename/delete a profile, and Enter just refreshes.
                 let keys = if app.header_focused() {
-                    " ↑↓ move · enter toggle auto-refresh · r refresh · a add · q quit"
+                    " ↑↓ move · enter toggle auto-refresh · a add · r refresh · q quit"
                 } else {
                     " ↑↓ move · enter switch · a add · e edit · d delete · r refresh · q quit"
                 };
@@ -236,4 +255,21 @@ fn draw_footer(f: &mut Frame, area: Rect, app: &App) {
         }
     };
     f.render_widget(Paragraph::new(line), area);
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn clamp_width_caps_wide_and_preserves_narrow() {
+        let wide = Rect { x: 0, y: 0, width: 200, height: 24 };
+        let clamped = clamp_width(wide);
+        assert_eq!(clamped.width, MAX_WIDTH);
+        // Height, position, and origin are untouched — only width is capped.
+        assert_eq!((clamped.x, clamped.y, clamped.height), (0, 0, 24));
+
+        let narrow = Rect { x: 0, y: 0, width: 50, height: 24 };
+        assert_eq!(clamp_width(narrow), narrow);
+    }
 }

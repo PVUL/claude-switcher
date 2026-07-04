@@ -18,7 +18,7 @@ use std::collections::HashMap;
 use std::path::{Path, PathBuf};
 use std::process::Command;
 
-use chrono::{DateTime, Local, Utc};
+use chrono::{DateTime, Duration, DurationRound, Local, Utc};
 use serde::{Deserialize, Serialize};
 
 const USAGE_URL: &str = "https://api.anthropic.com/api/oauth/usage";
@@ -84,7 +84,13 @@ pub fn resets_in(window: &Window) -> Option<String> {
 /// The reset moment as a local wall-clock time, e.g. "14:50" (today),
 /// "Sat 22:00" (this week), or "Jul 08 10:00".
 pub fn reset_clock(window: &Window) -> Option<String> {
-    let local = window.resets_at?.with_timezone(&Local);
+    // Round to the nearest minute (rather than flooring on display) so the
+    // clock time lines up with the actual reset moment.
+    let resets_at = window.resets_at?;
+    let local = resets_at
+        .duration_round(Duration::minutes(1))
+        .unwrap_or(resets_at)
+        .with_timezone(&Local);
     let now = Local::now();
     // American 12-hour clock, e.g. "3:49pm", "Sun 5:59am", "Jul 8 5:59pm".
     let fmt = if local.date_naive() == now.date_naive() {
@@ -113,35 +119,48 @@ struct Cred {
     expires_at: Option<i64>,
 }
 
-/// Resolve the access token for a profile. A profile can have several stored
-/// credentials (e.g. one keyed by its directory path and one by the active
-/// symlink it was launched through) — they all belong to the same account, so
-/// we pick the one with the latest expiry, which is the freshest non-expired
-/// token whenever any non-expired token exists.
+/// Resolve the access token for a profile.
+///
+/// A profile's own account-specific credentials (the on-disk token and the
+/// Keychain slot(s) keyed by its *directory*) are tried first, freshest expiry
+/// winning among them. The active symlink's Keychain slot is consulted **only**
+/// as a last resort: it is keyed by the symlink path, not the account, so it is
+/// SHARED across profiles and holds whichever account last authenticated
+/// through it. Merging it into the freshest-expiry race (the previous behavior)
+/// let a token left by a previously-active account leak in, making the active
+/// profile report another account's usage — so we never do that anymore.
 fn access_token(profile_path: &Path, home: &Path, active_link: Option<&Path>) -> Option<String> {
-    let mut creds: Vec<Cred> = Vec::new();
+    let mut own: Vec<Cred> = Vec::new();
     // Linux (and any install that writes the token to disk).
     if let Some(c) = token_from_file(profile_path) {
-        creds.push(c);
+        own.push(c);
     }
-    // macOS Keychain.
+    // macOS Keychain, the profile's own directory-keyed slot(s).
     #[cfg(target_os = "macos")]
-    {
-        for service in keychain_services(profile_path, home, active_link) {
-            if let Some(c) = token_from_keychain(&service) {
-                creds.push(c);
-            }
+    for service in own_keychain_services(profile_path, home) {
+        if let Some(c) = token_from_keychain(&service) {
+            own.push(c);
         }
     }
-    #[cfg(not(target_os = "macos"))]
-    {
-        let _ = (home, active_link);
-    }
     // Freshest expiry wins; unknown expiry is treated as oldest.
-    creds
+    if let Some(tok) = own
         .into_iter()
         .max_by_key(|c| c.expires_at.unwrap_or(i64::MIN))
         .map(|c| c.access_token)
+    {
+        return Some(tok);
+    }
+
+    // Legacy fallback only: a token stored under the unresolved symlink path.
+    #[cfg(target_os = "macos")]
+    if let Some(link) = active_link {
+        if let Some(c) = token_from_keychain(&service_name(link, home)) {
+            return Some(c.access_token);
+        }
+    }
+    #[cfg(not(target_os = "macos"))]
+    let _ = (home, active_link);
+    None
 }
 
 fn token_from_file(dir: &Path) -> Option<Cred> {
@@ -149,18 +168,15 @@ fn token_from_file(dir: &Path) -> Option<Cred> {
     parse_creds(&text)
 }
 
-/// Candidate Keychain service names for a profile, most specific first.
-fn keychain_services(profile_path: &Path, home: &Path, active_link: Option<&Path>) -> Vec<String> {
+/// The profile's own account-specific Keychain service names (keyed by its
+/// directory, both resolved and unresolved). Deliberately excludes the shared
+/// active-symlink slot, which is not account-specific.
+fn own_keychain_services(profile_path: &Path, home: &Path) -> Vec<String> {
     let mut paths: Vec<PathBuf> = Vec::new();
     let resolved = std::fs::canonicalize(profile_path).unwrap_or_else(|_| profile_path.to_path_buf());
     paths.push(resolved.clone());
     if resolved != profile_path {
         paths.push(profile_path.to_path_buf());
-    }
-    // When active, Claude may have keyed the token by the symlink it launched
-    // with rather than the resolved directory.
-    if let Some(link) = active_link {
-        paths.push(link.to_path_buf());
     }
 
     let mut services: Vec<String> = paths.iter().map(|p| service_name(p, home)).collect();
@@ -281,6 +297,19 @@ mod tests {
             service_name(&home.join(".claude-work"), home),
             format!("Claude Code-credentials-{}", config_hash(&home.join(".claude-work")))
         );
+    }
+
+    #[test]
+    fn own_services_exclude_the_shared_symlink_slot() {
+        // The profile's own directory-keyed slot is included, but the shared
+        // active-symlink slot (keyed by ~/.claude-switcher, not the account)
+        // must not be — that was the cross-account usage leak.
+        let home = Path::new("/Users/pyun");
+        let profile = home.join(".claude-work");
+        let link = home.join(".claude-switcher");
+        let services = own_keychain_services(&profile, home);
+        assert!(services.contains(&service_name(&profile, home)));
+        assert!(!services.contains(&service_name(&link, home)));
     }
 
     #[test]

@@ -17,7 +17,7 @@ pub fn run(cmd: Command, mgr: &mut Manager) -> Result<()> {
     match cmd {
         Command::Switch { name } => {
             mgr.switch(&name)?;
-            println!("Switched to '{name}'.");
+            println!("Switched {name} — relaunch Claude in this terminal or start new session.");
         }
         Command::Add { name, path } => {
             let profile = mgr.add(&name, path.as_deref())?;
@@ -53,6 +53,7 @@ pub fn run(cmd: Command, mgr: &mut Manager) -> Result<()> {
         Command::List { json } => list(mgr, json)?,
         Command::Usage { json } => usage(mgr, json)?,
         Command::Env => print_env(mgr),
+        Command::Shellenv => print!("{}", shellenv_script()),
     }
     Ok(())
 }
@@ -243,7 +244,36 @@ fn print_env(mgr: &Manager) {
     let link = mgr.paths().active_link();
     println!("# Add this to your shell profile so every tool follows claude-switcher:");
     println!("export CLAUDE_CONFIG_DIR=\"$HOME/{ACTIVE_LINK}\"");
+    println!("# For live switching without a new terminal, use `shellenv` instead:");
+    println!("#   eval \"$(claude-switcher shellenv)\"");
     let _ = link; // link already reflected via ACTIVE_LINK relative to $HOME
+}
+
+/// Shell integration that keeps CLAUDE_CONFIG_DIR in sync with the active
+/// symlink for the *current* shell, so `claude-switcher switch` (or a switch
+/// made inside the TUI) takes effect without opening a new terminal.
+///
+/// We export the RESOLVED symlink target rather than the symlink path itself:
+/// macOS Claude Code keys its Keychain OAuth token by a hash of the literal
+/// CLAUDE_CONFIG_DIR string, so the unresolved path would make every profile
+/// share one token slot. A wrapper function shadows the binary and re-resolves
+/// after each invocation; `command claude-switcher` calls the real executable.
+fn shellenv_script() -> String {
+    format!(
+        r#"# claude-switcher shell integration.
+# Add to your shell profile:  eval "$(claude-switcher shellenv)"
+__claude_switcher_sync() {{
+  export CLAUDE_CONFIG_DIR="$(readlink "$HOME/{ACTIVE_LINK}" 2>/dev/null || echo "$HOME/{ACTIVE_LINK}")"
+}}
+__claude_switcher_sync
+claude-switcher() {{
+  command claude-switcher "$@"
+  local __cs_status=$?
+  __claude_switcher_sync
+  return $__cs_status
+}}
+"#
+    )
 }
 
 /// Human-friendly relative time, matching the TUI's wording.
@@ -298,5 +328,19 @@ mod tests {
         assert_eq!(humanize(Some(now - Duration::hours(3))), "3 hr ago");
         assert_eq!(humanize(Some(now - Duration::hours(30))), "yesterday");
         assert_eq!(humanize(Some(now - Duration::days(4))), "4 days ago");
+    }
+
+    #[test]
+    fn shellenv_wraps_the_binary_and_resyncs() {
+        let script = shellenv_script();
+        // Shadows the binary but calls the real one to avoid recursion.
+        assert!(script.contains("claude-switcher() {"));
+        assert!(script.contains("command claude-switcher \"$@\""));
+        // Re-exports the RESOLVED target in the current shell after each call.
+        assert!(script.contains("export CLAUDE_CONFIG_DIR="));
+        assert!(script.contains(&format!("readlink \"$HOME/{ACTIVE_LINK}\"")));
+        assert!(script.contains("__claude_switcher_sync"));
+        // Preserves the wrapped command's exit status.
+        assert!(script.contains("return $__cs_status"));
     }
 }

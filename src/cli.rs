@@ -84,4 +84,10 @@ pub enum Command {
     },
     /// Print shell setup for pointing CLAUDE_CONFIG_DIR at the active profile.
     Env,
+    /// Print shell integration for live, in-shell switching (no new terminal).
+    ///
+    /// Add `eval "$(claude-switcher shellenv)"` to your shell profile. It wraps
+    /// the `claude-switcher` command so that, after every switch, it re-resolves
+    /// and re-exports CLAUDE_CONFIG_DIR in the CURRENT shell.
+    Shellenv,
 }

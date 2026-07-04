@@ -57,8 +57,14 @@ This installs two things:
 Pick whichever fits; they all read the same symlink:
 
 ```sh
-# Recommended: export the variable in your shell profile so the plain `claude`
-# command follows the active profile.
+# Recommended: live shell integration. Switching accounts then takes effect in
+# the CURRENT shell — no new terminal needed (see "Switching without a new
+# terminal" below).
+eval "$(claude-switcher shellenv)"
+
+# Simpler alternative: just export the variable. The plain `claude` command
+# follows the active profile, but an in-shell switch only affects shells started
+# afterwards.
 export CLAUDE_CONFIG_DIR="$HOME/.claude-switcher"
 ```
 
@@ -67,7 +73,31 @@ export CLAUDE_CONFIG_DIR="$HOME/.claude-switcher"
 - **Pi wrapper:** launch `claude-switcher-exec` instead of `claude` (or rely on
   the exported variable above).
 
-`claude-switcher env` prints the export line for you.
+`claude-switcher env` prints the export line; `claude-switcher shellenv` prints
+the live integration.
+
+## Switching without a new terminal
+
+On macOS, Claude Code keys its Keychain OAuth token by a hash of the *literal*
+`CLAUDE_CONFIG_DIR` string. So the variable must hold the **resolved** profile
+path (e.g. `~/.claude-work`), not the symlink path — otherwise every profile
+would share one token slot. That resolved path is captured once at shell start,
+which is why a plain `export` leaves already-open shells stuck on the old
+account after you switch.
+
+`claude-switcher shellenv` fixes this. It defines a wrapper function that runs
+the real command, then re-resolves and re-exports `CLAUDE_CONFIG_DIR` in the
+current shell:
+
+```sh
+eval "$(claude-switcher shellenv)"   # in ~/.zshenv, ~/.zshrc, or ~/.bashrc
+
+claude-switcher switch work          # symlink flips AND $CLAUDE_CONFIG_DIR updates here
+claude                               # already uses the 'work' account — same terminal
+```
+
+A switch made inside the TUI propagates too (the wrapper re-syncs after the TUI
+exits). No files are copied and each profile keeps its own Keychain token slot.
 
 ## Usage
 
@@ -86,7 +116,8 @@ claude-switcher list --json          # machine-readable
 claude-switcher rename work client   # renames + moves the dir if at the default path
 claude-switcher remove client        # unmanage (directory kept on disk)
 claude-switcher remove client --purge  # unmanage AND delete the directory
-claude-switcher env                  # print shell setup
+claude-switcher env                  # print shell setup (static export)
+claude-switcher shellenv             # print live shell integration (in-shell switching)
 ```
 
 ### Importing your current setup
@@ -148,14 +179,14 @@ un-highlights every profile row, so the list stays easy to read.
 Usage snapshots are cached to `profiles.json` with their fetch time. When you
 reopen the TUI within the poll interval, the cached values are shown
 immediately with **no API call**, and the next auto-refresh is scheduled to
-land exactly at the interval mark (a 9-minute-old snapshot refreshes in 1
-minute for a 10-minute poll).
+land exactly at the interval mark (a 4-minute-old snapshot refreshes in 1
+minute for a 5-minute poll).
 
-Auto-refresh polls every 10 minutes by default; change `pollIntervalSecs` in
+Auto-refresh polls every 5 minutes by default; change `pollIntervalSecs` in
 `~/.config/claude-switcher/profiles.json`:
 
 ```json
-"settings": { "autoRefresh": true, "pollIntervalSecs": 600 }
+"settings": { "autoRefresh": true, "pollIntervalSecs": 300 }
 ```
 
 The list is ordered active-first, then by most-recent usage. That order is
