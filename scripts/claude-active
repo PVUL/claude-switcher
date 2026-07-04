@@ -1,0 +1,15 @@
+#!/bin/sh
+# claude-active — launch Claude Code using whichever profile claudesub has
+# activated. The ~/.claude-active symlink is maintained by `claudesub`; every
+# consumer that runs this wrapper (or exports the same variable) automatically
+# follows the selected profile.
+#
+# Usage:
+#   claude-active [any claude args...]
+#
+# Integration:
+#   * Pi wrapper: launch `claude-active` instead of `claude`.
+#   * pi-claude-bridge: set pathToClaudeCodeExecutable to this script.
+#   * Interactive shells: alias claude='claude-active'
+export CLAUDE_CONFIG_DIR="$HOME/.claude-active"
+exec claude "$@"

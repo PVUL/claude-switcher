@@ -1,0 +1,123 @@
+//! Filesystem locations used by claudesub.
+//!
+//! Everything is derived from two roots:
+//!   * `home`       — where the profile directories and the active symlink live.
+//!   * `config_dir` — where the metadata file (`profiles.json`) lives.
+//!
+//! Both can be overridden with environment variables, which keeps the whole
+//! program testable without touching the real `$HOME`:
+//!   * `CLAUDESUB_HOME`       overrides the home root.
+//!   * `CLAUDESUB_CONFIG_DIR` overrides the config directory.
+
+use std::path::{Path, PathBuf};
+
+use crate::error::{Error, Result};
+
+/// Name of the symlink that every consumer (`claude-active`, Pi, wrappers)
+/// points `CLAUDE_CONFIG_DIR` at.
+pub const ACTIVE_LINK: &str = ".claude-active";
+
+/// Prefix for the per-profile Claude configuration directories.
+pub const PROFILE_PREFIX: &str = ".claude-";
+
+/// Resolved locations for the current invocation.
+#[derive(Debug, Clone)]
+pub struct Paths {
+    pub home: PathBuf,
+    pub config_dir: PathBuf,
+}
+
+impl Paths {
+    /// Discover paths from the environment (or the overrides above).
+    pub fn discover() -> Result<Self> {
+        let home = match std::env::var_os("CLAUDESUB_HOME") {
+            Some(h) => PathBuf::from(h),
+            None => dirs::home_dir().ok_or(Error::NoHomeDir)?,
+        };
+        let config_dir = match std::env::var_os("CLAUDESUB_CONFIG_DIR") {
+            Some(c) => PathBuf::from(c),
+            None => home.join(".config").join("claudesub"),
+        };
+        Ok(Self { home, config_dir })
+    }
+
+    /// Build paths explicitly (used by tests).
+    #[cfg(test)]
+    pub fn with_roots(home: impl Into<PathBuf>, config_dir: impl Into<PathBuf>) -> Self {
+        Self {
+            home: home.into(),
+            config_dir: config_dir.into(),
+        }
+    }
+
+    /// The active-profile symlink, e.g. `~/.claude-active`.
+    pub fn active_link(&self) -> PathBuf {
+        self.home.join(ACTIVE_LINK)
+    }
+
+    /// Default directory for a profile of the given name, e.g. `~/.claude-work`.
+    pub fn default_profile_path(&self, name: &str) -> PathBuf {
+        self.home.join(format!("{PROFILE_PREFIX}{name}"))
+    }
+
+    /// The metadata file: `<config_dir>/profiles.json`.
+    pub fn metadata_file(&self) -> PathBuf {
+        self.config_dir.join("profiles.json")
+    }
+
+    /// Expand a stored path that may begin with `~`.
+    pub fn expand(&self, raw: &str) -> PathBuf {
+        if let Some(rest) = raw.strip_prefix("~/") {
+            self.home.join(rest)
+        } else if raw == "~" {
+            self.home.clone()
+        } else {
+            PathBuf::from(raw)
+        }
+    }
+
+    /// Contract an absolute path back to `~`-relative form for portable storage.
+    pub fn contract(&self, path: &Path) -> String {
+        match path.strip_prefix(&self.home) {
+            Ok(rest) if rest.as_os_str().is_empty() => "~".to_string(),
+            Ok(rest) => format!("~/{}", rest.display()),
+            Err(_) => path.display().to_string(),
+        }
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    fn paths() -> Paths {
+        Paths::with_roots("/home/alice", "/home/alice/.config/claudesub")
+    }
+
+    #[test]
+    fn expands_tilde() {
+        let p = paths();
+        assert_eq!(p.expand("~/.claude-work"), PathBuf::from("/home/alice/.claude-work"));
+        assert_eq!(p.expand("~"), PathBuf::from("/home/alice"));
+        assert_eq!(p.expand("/abs/path"), PathBuf::from("/abs/path"));
+    }
+
+    #[test]
+    fn contracts_to_tilde() {
+        let p = paths();
+        assert_eq!(p.contract(Path::new("/home/alice/.claude-work")), "~/.claude-work");
+        assert_eq!(p.contract(Path::new("/home/alice")), "~");
+        assert_eq!(p.contract(Path::new("/other/place")), "/other/place");
+    }
+
+    #[test]
+    fn derived_locations() {
+        let p = paths();
+        assert_eq!(p.active_link(), PathBuf::from("/home/alice/.claude-active"));
+        assert_eq!(p.default_profile_path("work"), PathBuf::from("/home/alice/.claude-work"));
+        assert_eq!(
+            p.metadata_file(),
+            PathBuf::from("/home/alice/.config/claudesub/profiles.json")
+        );
+    }
+}
