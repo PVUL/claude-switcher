@@ -106,17 +106,30 @@ pub fn bar(utilization: f64, width: usize) -> String {
 
 // ---- token resolution -----------------------------------------------------
 
+/// A candidate credential with its expiry, so we can prefer the freshest one.
+struct Cred {
+    access_token: String,
+    /// Epoch-millis expiry, if known.
+    expires_at: Option<i64>,
+}
+
+/// Resolve the access token for a profile. A profile can have several stored
+/// credentials (e.g. one keyed by its directory path and one by the active
+/// symlink it was launched through) — they all belong to the same account, so
+/// we pick the one with the latest expiry, which is the freshest non-expired
+/// token whenever any non-expired token exists.
 fn access_token(profile_path: &Path, home: &Path, active_link: Option<&Path>) -> Option<String> {
+    let mut creds: Vec<Cred> = Vec::new();
     // Linux (and any install that writes the token to disk).
-    if let Some(t) = token_from_file(profile_path) {
-        return Some(t);
+    if let Some(c) = token_from_file(profile_path) {
+        creds.push(c);
     }
     // macOS Keychain.
     #[cfg(target_os = "macos")]
     {
         for service in keychain_services(profile_path, home, active_link) {
-            if let Some(t) = token_from_keychain(&service) {
-                return Some(t);
+            if let Some(c) = token_from_keychain(&service) {
+                creds.push(c);
             }
         }
     }
@@ -124,12 +137,16 @@ fn access_token(profile_path: &Path, home: &Path, active_link: Option<&Path>) ->
     {
         let _ = (home, active_link);
     }
-    None
+    // Freshest expiry wins; unknown expiry is treated as oldest.
+    creds
+        .into_iter()
+        .max_by_key(|c| c.expires_at.unwrap_or(i64::MIN))
+        .map(|c| c.access_token)
 }
 
-fn token_from_file(dir: &Path) -> Option<String> {
+fn token_from_file(dir: &Path) -> Option<Cred> {
     let text = std::fs::read_to_string(dir.join(".credentials.json")).ok()?;
-    parse_token(&text)
+    parse_creds(&text)
 }
 
 /// Candidate Keychain service names for a profile, most specific first.
@@ -169,7 +186,7 @@ fn config_hash(path: &Path) -> String {
 }
 
 #[cfg(target_os = "macos")]
-fn token_from_keychain(service: &str) -> Option<String> {
+fn token_from_keychain(service: &str) -> Option<Cred> {
     let output = Command::new("security")
         .args(["find-generic-password", "-s", service, "-w"])
         .output()
@@ -177,17 +194,17 @@ fn token_from_keychain(service: &str) -> Option<String> {
     if !output.status.success() {
         return None;
     }
-    parse_token(&String::from_utf8_lossy(&output.stdout))
+    parse_creds(&String::from_utf8_lossy(&output.stdout))
 }
 
-/// Extract the access token from a credentials JSON blob (Keychain or file).
-fn parse_token(text: &str) -> Option<String> {
+/// Extract the access token and expiry from a credentials JSON blob. Handles
+/// both the `{"claudeAiOauth": {...}}` (Keychain) and flat shapes.
+fn parse_creds(text: &str) -> Option<Cred> {
     let value: serde_json::Value = serde_json::from_str(text.trim()).ok()?;
-    value
-        .pointer("/claudeAiOauth/accessToken")
-        .or_else(|| value.get("accessToken"))
-        .and_then(|v| v.as_str())
-        .map(str::to_string)
+    let obj = value.get("claudeAiOauth").unwrap_or(&value);
+    let access_token = obj.get("accessToken")?.as_str()?.to_string();
+    let expires_at = obj.get("expiresAt").and_then(|v| v.as_i64());
+    Some(Cred { access_token, expires_at })
 }
 
 // ---- API call -------------------------------------------------------------
@@ -275,12 +292,16 @@ mod tests {
     }
 
     #[test]
-    fn parses_token_from_both_shapes() {
-        assert_eq!(
-            parse_token(r#"{"claudeAiOauth":{"accessToken":"abc"}}"#).as_deref(),
-            Some("abc")
-        );
-        assert_eq!(parse_token(r#"{"accessToken":"xyz"}"#).as_deref(), Some("xyz"));
-        assert_eq!(parse_token("not json"), None);
+    fn parses_creds_from_both_shapes() {
+        let c = parse_creds(r#"{"claudeAiOauth":{"accessToken":"abc","expiresAt":1783162428812}}"#)
+            .unwrap();
+        assert_eq!(c.access_token, "abc");
+        assert_eq!(c.expires_at, Some(1783162428812));
+
+        let flat = parse_creds(r#"{"accessToken":"xyz"}"#).unwrap();
+        assert_eq!(flat.access_token, "xyz");
+        assert_eq!(flat.expires_at, None);
+
+        assert!(parse_creds("not json").is_none());
     }
 }
