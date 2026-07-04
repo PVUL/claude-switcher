@@ -5,19 +5,23 @@ symlink — and make every tool (the `claude` CLI, Pi, `pi-claude-bridge`, any
 future wrapper) follow the active account automatically.
 
 ```
-┌──────────────────────────────────────────────┐
-│  Claude Accounts   active: work                │
-├──────────────────────────────────────────────┤
-│ Profiles                                       │
-│ > ✓ work (paul@nhost.io · Team)                       │
-│      last used: 2 min ago                      │
-│   personal (paul@personal.dev)                 │
-│      last used: yesterday                      │
-│   client (acme@client.com)                     │
-│      last used: never   [not signed in]        │
-├──────────────────────────────────────────────┤
-│ ENTER switch   A add   R rename   D delete  Q  │
-└──────────────────────────────────────────────┘
+┌─────────────────────────────────────────────────────────────────────────┐
+│  Claude Switcher        updated 3:49pm       auto-refresh: on           │
+├─ Accounts ──────────────────────────────────────────────────────────────┤
+│› ✓ work  (you@work.com · Team)                                          │
+│      5h [██████░░░░░░░░░░]  22%   resets in 3h 30m  (3:50pm)            │
+│      7d [█░░░░░░░░░░░░░░░]   5%   resets in 17h 40m (Sun 6:00am)        │
+│      last used: 2 min ago                                               │
+│  personal  (you@personal.dev · Pro)                                     │
+│      5h [░░░░░░░░░░░░░░░░]   0%   resets in 4h 12m  (7:01pm)            │
+│      7d [██░░░░░░░░░░░░░░]  11%   resets in 3d 2h  (Tue 9:00am)         │
+│      last used: yesterday                                               │
+│  client                                                                 │
+│      usage unavailable                                                  │
+│      last used: never   [not signed in]                                 │
+├─────────────────────────────────────────────────────────────────────────┤
+│ ↑↓ move · enter switch · a add · e edit · d delete · r refresh · q quit │
+└─────────────────────────────────────────────────────────────────────────┘
 ```
 
 ## Why
@@ -27,11 +31,11 @@ skills — inside the directory named by the `CLAUDE_CONFIG_DIR` environment
 variable. `claude-switcher` keeps one directory per account and flips a single symlink
 to choose the active one:
 
-```
-~/.claude-work        ← a complete Claude config dir
-~/.claude-personal    ← another one
-~/.claude-client      ← another one
-~/.claude-switcher  ->  ~/.claude-work   (the symlink; the source of truth)
+```sh
+~/.claude-work       # ← a complete Claude config dir
+~/.claude-personal   # ← another one
+~/.claude-client     # ← another one
+~/.claude-switcher  ->  ~/.claude-work   # (the symlink; the source of truth)
 ```
 
 Point anything at `~/.claude-switcher` and it uses whichever account is active.
@@ -102,22 +106,24 @@ exits). No files are copied and each profile keeps its own Keychain token slot.
 ## Usage
 
 ```sh
-claude-switcher                      # open the interactive TUI
-claude-switcher adopt --scan         # auto-import existing ~/.claude[-*] dirs as profiles
-claude-switcher adopt                # adopt the default ~/.claude (name "default")
-claude-switcher adopt work --path ~/.claude-work   # adopt one directory in place
-claude-switcher add work             # create ~/.claude-work (first one becomes active)
+claude-switcher                                         # open the interactive TUI
+claude-switcher adopt --scan                            # auto-import existing ~/.claude[-*] dirs as profiles
+claude-switcher adopt                                   # adopt the default ~/.claude (name "default")
+claude-switcher adopt work --path ~/.claude-work        # adopt one directory in place
+claude-switcher adopt work --activate                   # ...and make it active (single-profile mode)
+claude-switcher add work                                # create ~/.claude-work (first one becomes active)
 claude-switcher add client --path ~/work/.claude-acme   # custom directory
-claude-switcher switch work          # re-point the symlink atomically
-claude-switcher current              # print the active profile (+ email)
-claude-switcher usage                # per-account usage limits (5-hour / 7-day)
-claude-switcher list                 # detailed listing
-claude-switcher list --json          # machine-readable
-claude-switcher rename work client   # renames + moves the dir if at the default path
-claude-switcher remove client        # unmanage (directory kept on disk)
-claude-switcher remove client --purge  # unmanage AND delete the directory
-claude-switcher env                  # print shell setup (static export)
-claude-switcher shellenv             # print live shell integration (in-shell switching)
+claude-switcher switch work                             # re-point the symlink atomically
+claude-switcher current                                 # print the active profile (+ email)
+claude-switcher usage                                   # per-account usage limits (5-hour / 7-day)
+claude-switcher usage --json                            # machine-readable
+claude-switcher list                                    # detailed listing
+claude-switcher list --json                             # machine-readable
+claude-switcher rename work client                      # renames + moves the dir if at the default path
+claude-switcher remove client                           # unmanage (directory kept on disk)
+claude-switcher remove client --purge                   # unmanage AND delete the directory
+claude-switcher env                                     # print shell setup (static export)
+claude-switcher shellenv                                # print live shell integration (in-shell switching)
 ```
 
 ### Importing your current setup
@@ -158,15 +164,15 @@ Once signed in, `claude-switcher` reads the account email from the profile's
 
 ### TUI keys
 
-| Key            | Action                          |
-| -------------- | ------------------------------- |
-| `↑`/`k`, `↓`/`j` | Move selection (incl. the header auto-refresh toggle) |
-| `Enter`        | Switch to selected profile — or toggle auto-refresh when the header is focused |
-| `R`            | Manual refresh of usage (also resets the auto-refresh timer) |
-| `A`            | Add a profile                   |
-| `E`            | Edit (rename) the selected profile |
-| `D`            | Delete (unmanage) the profile   |
-| `Q` / `Esc`    | Quit                            |
+| Key              | Action                                                       |
+| ---------------- | ------------------------------------------------------------ |
+| `↑`/`k`, `↓`/`j` | Move selection (incl. the header auto-refresh toggle)        |
+| `Enter`          | Switch to the selected profile; press it again on the now-active profile to close. Toggles auto-refresh when the header is focused |
+| `R`              | Manual refresh of usage (also resets the auto-refresh timer) |
+| `A`              | Add a profile                                                |
+| `E`              | Edit (rename) the selected profile                           |
+| `D`              | Delete (unmanage) the profile                                |
+| `Q` / `Esc`      | Quit                                                         |
 
 No mouse required.
 
@@ -201,17 +207,18 @@ consumed, and the TUI displays the same per row (fetched in the background, so
 the UI opens instantly):
 
 ```
-* paul-nhost (paul@nhost.io · Team)
-      5-hour  [████░░░░░░░░░░░░░░░░]  22%   resets in 3h 30m (3:50pm)
-      7-day   [█░░░░░░░░░░░░░░░░░░░]   5%   resets in 17h 40m (Sun 6:00am)
-  takeyoung (takeyoung@gmail.com · Pro)
-      5-hour  [░░░░░░░░░░░░░░░░░░░░]   0%   resets in 3h 30m (3:49pm)
-      7-day   [░░░░░░░░░░░░░░░░░░░░]   0%   resets in 4d 5h (Wed 5:59pm)
+* work (you@work.com · Team)
+      5-hour  [████░░░░░░░░░░░░░░░░] 22%  resets in 3h 30m  (3:50pm)
+      7-day   [█░░░░░░░░░░░░░░░░░░░]  5%  resets in 17h 40m (Sun 6:00am)
+  personal (you@personal.dev · Pro)
+      5-hour  [░░░░░░░░░░░░░░░░░░░░]  0%  resets in 3h 30m  (3:49pm)
+      7-day   [░░░░░░░░░░░░░░░░░░░░]  0%  resets in 4d 5h   (Wed 5:59pm)
 ```
 
 The bar is color-coded in the TUI (green / yellow / red as you approach the
 limit), and each window shows both the relative countdown and the local
-wall-clock time it resets.
+wall-clock time it resets. Accounts with a separate Opus allotment also get an
+`opus` line (CLI) / a `· opus N%` suffix on the 7-day row (TUI) when non-zero.
 
 This is the **only** feature that touches the network, and it's entirely
 opt-in — `list`, `current`, and switching stay fully offline. It reads each
@@ -246,11 +253,16 @@ Metadata schema:
     {
       "name": "work",
       "path": "~/.claude-work",
-      "email": "paul@nhost.io"
+      "email": "you@work.com"
     }
-  ]
+  ],
+  "settings": { "autoRefresh": true, "pollIntervalSecs": 300 }
 }
 ```
+
+The file also carries a `usageCache` block (the last usage snapshot plus its
+fetch time) so the TUI can render instantly and skip a redundant API call when
+reopened within the poll interval.
 
 Override locations (handy for testing or non-standard setups):
 
@@ -261,24 +273,24 @@ Override locations (handy for testing or non-standard setups):
 ## Development
 
 ```sh
-cargo test        # unit + end-to-end tests
-cargo run         # launch the TUI against your real $HOME
+cargo test             # unit + end-to-end tests
+cargo run              # launch the TUI against your real $HOME
 cargo build --release
 ```
 
 Module layout:
 
-| File                | Responsibility                                   |
-| ------------------- | ------------------------------------------------ |
-| `paths.rs`          | Location resolution + tilde expand/contract      |
-| `symlink.rs`        | Atomic symlink + file operations                 |
-| `metadata.rs`       | `profiles.json` load/save                        |
-| `detect.rs`         | Local email / auth detection                     |
-| `profile.rs`        | Runtime profile type + name validation           |
-| `manager.rs`        | Orchestration; keeps symlink ⇄ metadata in sync  |
-| `cli.rs` / `commands.rs` | Non-interactive command surface             |
-| `usage.rs`          | Opt-in usage-limit lookup (token + endpoint)     |
-| `tui/`              | Ratatui UI (`app` state, `ui` render, event loop) |
+| File                     | Responsibility                                    |
+| ------------------------ | ------------------------------------------------- |
+| `paths.rs`               | Location resolution + tilde expand/contract       |
+| `symlink.rs`             | Atomic symlink + file operations                  |
+| `metadata.rs`            | `profiles.json` load/save                         |
+| `detect.rs`              | Local email / auth detection                      |
+| `profile.rs`             | Runtime profile type + name validation            |
+| `manager.rs`             | Orchestration; keeps symlink ⇄ metadata in sync   |
+| `cli.rs` / `commands.rs` | Non-interactive command surface                   |
+| `usage.rs`               | Opt-in usage-limit lookup (token + endpoint)      |
+| `tui/`                   | Ratatui UI (`app` state, `ui` render, event loop) |
 
 ## License
 

@@ -247,6 +247,9 @@ fn draw_footer(f: &mut Frame, area: Rect, app: &App) {
                 // switch/rename/delete a profile, and Enter just refreshes.
                 let keys = if app.header_focused() {
                     " ↑↓ move · enter toggle auto-refresh · a add · r refresh · q quit"
+                } else if app.selected_profile().is_some_and(|p| p.active) {
+                    // Already on the active profile: a (second) Enter closes.
+                    " ↑↓ move · enter close · a add · e edit · d delete · r refresh · q quit"
                 } else {
                     " ↑↓ move · enter switch · a add · e edit · d delete · r refresh · q quit"
                 };

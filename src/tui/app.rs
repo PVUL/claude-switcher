@@ -307,10 +307,16 @@ impl<'m> App<'m> {
         self.selected = (self.selected + n - 1) % n;
     }
 
-    /// Enter: toggle auto-refresh if the header control is focused, else switch.
+    /// Enter behavior, depending on focus:
+    /// - the header control: toggle auto-refresh;
+    /// - a non-active profile: switch to it;
+    /// - the already-active profile (e.g. a second Enter right after switching
+    ///   to it): confirm and close the TUI.
     pub fn activate(&mut self) {
         if self.header_focused() {
             self.toggle_auto_refresh();
+        } else if self.selected_profile().is_some_and(|p| p.active) {
+            self.should_quit = true;
         } else {
             self.switch_selected();
         }
@@ -535,6 +541,31 @@ mod tests {
         app.begin_delete();
         app.confirm_delete();
         assert_eq!(app.profiles().len(), 1);
+    }
+
+    #[test]
+    fn second_enter_after_switch_closes_the_tui() {
+        let dir = tempdir().unwrap();
+        let mut mgr = manager(dir.path());
+        let mut app = App::new(&mut mgr);
+        for name in ["work", "personal"] {
+            app.begin_add();
+            for ch in name.chars() {
+                app.input_push(ch);
+            }
+            app.commit_input();
+        }
+
+        // Select the non-active profile: the first Enter switches to it.
+        app.selected = app.profiles().iter().position(|p| p.name == "personal").unwrap() + 1;
+        assert!(!app.selected_profile().unwrap().active);
+        app.activate();
+        assert!(app.selected_profile().unwrap().active, "first Enter switches");
+        assert!(!app.should_quit, "first Enter does not close");
+
+        // A second Enter, now on the active profile, closes the TUI.
+        app.activate();
+        assert!(app.should_quit, "second Enter on the active profile closes");
     }
 
     #[test]
