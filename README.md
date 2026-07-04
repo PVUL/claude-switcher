@@ -32,9 +32,9 @@ variable. `claude-switcher` keeps one directory per account and flips a single s
 to choose the active one:
 
 ```sh
-~/.claude-work       # ← a complete Claude config dir
-~/.claude-personal   # ← another one
-~/.claude-client     # ← another one
+~/.claude-work                           # ← a complete Claude config dir
+~/.claude-personal                       # ← another one
+~/.claude-client                         # ← another one
 ~/.claude-switcher  ->  ~/.claude-work   # (the symlink; the source of truth)
 ```
 
