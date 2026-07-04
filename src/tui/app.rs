@@ -218,6 +218,19 @@ impl<'m> App<'m> {
         self.usage.values().any(|s| matches!(s, UsageState::Loading))
     }
 
+    /// True when at least one profile has no usable usage on screen — either the
+    /// lookup failed (`Unavailable`) or it came back with no windows, which the
+    /// UI shows as "n/a" for both the 5h and 7d rows. Lifts the manual-refresh
+    /// debounce so the user can retry right away instead of waiting a minute for
+    /// data that isn't showing anyway.
+    fn usage_unavailable(&self) -> bool {
+        self.usage.values().any(|s| match s {
+            UsageState::Unavailable => true,
+            UsageState::Ready(u) => u.five_hour.is_none() && u.seven_day.is_none(),
+            UsageState::Loading => false,
+        })
+    }
+
     /// Header label: "updating…" while fetching, else "updated 3:49pm".
     pub fn updated_label(&self) -> String {
         if self.is_refreshing() {
@@ -341,16 +354,20 @@ impl<'m> App<'m> {
         });
     }
 
-    /// Manual refresh ('r'): re-fetch usage, debounced to once per minute. A
-    /// successful refresh also resets the auto-refresh timer.
+    /// Manual refresh ('r'): re-fetch usage. Debounced to once per minute while
+    /// data is on screen, but the debounce is lifted whenever a profile's usage
+    /// is currently unavailable (e.g. offline) so a failed lookup can be retried
+    /// immediately. A successful refresh also resets the auto-refresh timer.
     pub fn manual_refresh(&mut self) {
-        let remaining =
-            REFRESH_COOLDOWN_SECS - Local::now().signed_duration_since(self.last_updated).num_seconds();
-        if remaining > 0 {
-            self.status = Some(format!(
-                "Usage refreshes at most once/min — try again in {remaining}s"
-            ));
-            return;
+        if !self.usage_unavailable() {
+            let remaining = REFRESH_COOLDOWN_SECS
+                - Local::now().signed_duration_since(self.last_updated).num_seconds();
+            if remaining > 0 {
+                self.status = Some(format!(
+                    "Usage refreshes at most once/min — try again in {remaining}s"
+                ));
+                return;
+            }
         }
         // The header shows "updating…" → "updated <time>", so no sticky footer
         // message is needed (and a sticky one would linger after completion).
@@ -709,6 +726,43 @@ mod tests {
         assert_eq!(app.selected_profile().unwrap().name, "solo");
         app.select_next();
         assert!(app.header_focused());
+    }
+
+    #[test]
+    fn unavailable_usage_bypasses_the_refresh_cooldown() {
+        let dir = tempdir().unwrap();
+        let mut mgr = manager(dir.path());
+        let mut app = App::new(&mut mgr);
+        app.begin_add();
+        for ch in "solo".chars() {
+            app.input_push(ch);
+        }
+        app.commit_input();
+
+        // A lookup that succeeded but returned no windows renders as "n/a" for
+        // both rows — there's nothing to protect, so it should bypass too.
+        app.usage.insert(
+            "solo".to_string(),
+            UsageState::Ready(Usage { five_hour: None, seven_day: None, seven_day_opus: None }),
+        );
+        app.manual_refresh();
+        assert!(
+            !app.status.as_deref().unwrap_or_default().contains("once/min"),
+            "empty (n/a) usage should bypass the cooldown, got {:?}",
+            app.status
+        );
+        assert!(matches!(app.usage("solo"), Some(UsageState::Loading)));
+
+        // A failed lookup (e.g. offline) bypasses the cooldown as well.
+        app.usage.insert("solo".to_string(), UsageState::Unavailable);
+        app.manual_refresh();
+        assert!(
+            !app.status.as_deref().unwrap_or_default().contains("once/min"),
+            "unavailable usage should bypass the cooldown, got {:?}",
+            app.status
+        );
+        // ...and it kicks off a fresh lookup (state resets to Loading).
+        assert!(matches!(app.usage("solo"), Some(UsageState::Loading)));
     }
 
     #[test]
