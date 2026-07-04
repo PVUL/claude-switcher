@@ -71,12 +71,13 @@ pub fn resets_in(window: &Window) -> Option<String> {
 pub fn reset_clock(window: &Window) -> Option<String> {
     let local = window.resets_at?.with_timezone(&Local);
     let now = Local::now();
+    // American 12-hour clock, e.g. "3:49pm", "Sun 5:59am", "Jul 8 5:59pm".
     let fmt = if local.date_naive() == now.date_naive() {
-        local.format("%H:%M").to_string()
+        local.format("%-I:%M%P").to_string()
     } else if local.signed_duration_since(now).num_days() < 6 {
-        local.format("%a %H:%M").to_string()
+        local.format("%a %-I:%M%P").to_string()
     } else {
-        local.format("%b %d %H:%M").to_string()
+        local.format("%b %-d %-I:%M%P").to_string()
     };
     Some(fmt)
 }

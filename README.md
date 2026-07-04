@@ -151,11 +151,11 @@ the UI opens instantly):
 
 ```
 * paul-nhost (paul@nhost.io)
-      5-hour  [████░░░░░░░░░░░░░░░░]  22%   resets in 3h 30m (15:50)
-      7-day   [█░░░░░░░░░░░░░░░░░░░]   5%   resets in 17h 40m (Sun 06:00)
+      5-hour  [████░░░░░░░░░░░░░░░░]  22%   resets in 3h 30m (3:50pm)
+      7-day   [█░░░░░░░░░░░░░░░░░░░]   5%   resets in 17h 40m (Sun 6:00am)
   takeyoung (takeyoung@gmail.com)
-      5-hour  [░░░░░░░░░░░░░░░░░░░░]   0%   resets in 3h 30m (15:49)
-      7-day   [░░░░░░░░░░░░░░░░░░░░]   0%   resets in 4d 5h (Wed 17:59)
+      5-hour  [░░░░░░░░░░░░░░░░░░░░]   0%   resets in 3h 30m (3:49pm)
+      7-day   [░░░░░░░░░░░░░░░░░░░░]   0%   resets in 4d 5h (Wed 5:59pm)
 ```
 
 The bar is color-coded in the TUI (green / yellow / red as you approach the
