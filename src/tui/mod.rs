@@ -6,17 +6,15 @@ mod ui;
 use std::io::{self, Stdout};
 
 use crossterm::event::{self, Event, KeyCode, KeyEvent, KeyEventKind, KeyModifiers};
-use crossterm::terminal::{
-    disable_raw_mode, enable_raw_mode, EnterAlternateScreen, LeaveAlternateScreen,
-};
-use crossterm::{execute, ExecutableCommand};
+use crossterm::terminal::{disable_raw_mode, enable_raw_mode};
 use ratatui::backend::CrosstermBackend;
-use ratatui::Terminal;
+use ratatui::{Terminal, TerminalOptions, Viewport};
 
 use crate::error::Result;
 use crate::manager::Manager;
 
 use app::{App, Mode};
+use ui::{CHROME_LINES, ROWS_PER_PROFILE};
 
 /// Entry point from `main` when no subcommand is given.
 pub fn run(manager: &mut Manager) -> Result<()> {
@@ -25,24 +23,37 @@ pub fn run(manager: &mut Manager) -> Result<()> {
         return Ok(());
     }
 
-    let mut terminal = setup_terminal()?;
+    let height = viewport_height(manager.profiles().len());
+    let mut terminal = setup_terminal(height)?;
     let app = App::new(manager);
     let result = event_loop(&mut terminal, app);
     restore_terminal(&mut terminal)?;
     result
 }
 
-fn setup_terminal() -> Result<Terminal<CrosstermBackend<Stdout>>> {
+/// Size the inline viewport to the content, capped so it never dominates the
+/// terminal. The list scrolls if there are more profiles than fit.
+fn viewport_height(profiles: usize) -> u16 {
+    let content = CHROME_LINES + ROWS_PER_PROFILE * profiles.max(1) as u16;
+    content.clamp(CHROME_LINES + ROWS_PER_PROFILE, 18)
+}
+
+fn setup_terminal(height: u16) -> Result<Terminal<CrosstermBackend<Stdout>>> {
     enable_raw_mode()?;
-    let mut stdout = io::stdout();
-    stdout.execute(EnterAlternateScreen)?;
-    let backend = CrosstermBackend::new(stdout);
-    Ok(Terminal::new(backend)?)
+    let backend = CrosstermBackend::new(io::stdout());
+    let terminal = Terminal::with_options(
+        backend,
+        TerminalOptions {
+            viewport: Viewport::Inline(height),
+        },
+    )?;
+    Ok(terminal)
 }
 
 fn restore_terminal(terminal: &mut Terminal<CrosstermBackend<Stdout>>) -> Result<()> {
     disable_raw_mode()?;
-    execute!(terminal.backend_mut(), LeaveAlternateScreen)?;
+    // Clear the inline viewport so no stale UI is left in the scrollback.
+    terminal.clear()?;
     terminal.show_cursor()?;
     Ok(())
 }
