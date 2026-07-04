@@ -23,6 +23,9 @@ pub enum InputAction {
 pub struct App<'m> {
     manager: &'m mut Manager,
     profiles: Vec<Profile>,
+    /// Display order (profile names), fixed for the session so switching does
+    /// not shuffle the list. New profiles append; removed ones drop out.
+    order: Vec<String>,
     pub selected: usize,
     pub mode: Mode,
     pub status: Option<String>,
@@ -32,9 +35,11 @@ pub struct App<'m> {
 impl<'m> App<'m> {
     pub fn new(manager: &'m mut Manager) -> Self {
         let profiles = manager.profiles();
+        let order = profiles.iter().map(|p| p.name.clone()).collect();
         App {
             manager,
             profiles,
+            order,
             selected: 0,
             mode: Mode::Normal,
             status: None,
@@ -51,7 +56,23 @@ impl<'m> App<'m> {
     }
 
     fn reload(&mut self) {
-        self.profiles = self.manager.profiles();
+        // Re-fetch live state but preserve the session's display order so the
+        // list doesn't reshuffle when the active profile changes.
+        let fresh = self.manager.profiles();
+        let mut ordered: Vec<Profile> = Vec::with_capacity(fresh.len());
+        for name in &self.order {
+            if let Some(p) = fresh.iter().find(|p| &p.name == name) {
+                ordered.push(p.clone());
+            }
+        }
+        // Append profiles added since the session started (in manager order).
+        for p in &fresh {
+            if !self.order.contains(&p.name) {
+                ordered.push(p.clone());
+            }
+        }
+        self.order = ordered.iter().map(|p| p.name.clone()).collect();
+        self.profiles = ordered;
         if self.selected >= self.profiles.len() {
             self.selected = self.profiles.len().saturating_sub(1);
         }
@@ -218,6 +239,30 @@ mod tests {
         app.begin_delete();
         app.confirm_delete();
         assert_eq!(app.profiles().len(), 1);
+    }
+
+    #[test]
+    fn order_is_stable_across_switch() {
+        let dir = tempdir().unwrap();
+        let mut mgr = manager(dir.path());
+        let mut app = App::new(&mut mgr);
+        for name in ["a", "b", "c"] {
+            app.begin_add();
+            for ch in name.chars() {
+                app.input_push(ch);
+            }
+            app.commit_input();
+        }
+        let before: Vec<String> = app.profiles().iter().map(|p| p.name.clone()).collect();
+
+        // Switching must not reshuffle the rows within the session.
+        app.selected = app.profiles().iter().position(|p| p.name == "c").unwrap();
+        app.switch_selected();
+        let after: Vec<String> = app.profiles().iter().map(|p| p.name.clone()).collect();
+        assert_eq!(before, after, "order changed after switch");
+        // The highlight follows the profile we switched to.
+        assert_eq!(app.selected_profile().unwrap().name, "c");
+        assert!(app.selected_profile().unwrap().active);
     }
 
     #[test]

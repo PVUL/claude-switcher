@@ -137,6 +137,11 @@ Once signed in, `claude-switcher` reads the account email from the profile's
 
 No mouse required.
 
+The list is ordered active-first, then by most-recent usage. That order is
+fixed when the TUI opens and stays put while you navigate — switching moves the
+✓ but never reshuffles the rows out from under you. (`claude-switcher list`
+re-sorts on each run.)
+
 ## How it works
 
 - **Symlink is authoritative.** The active profile is always determined by
