@@ -17,7 +17,7 @@
 use std::path::{Path, PathBuf};
 use std::process::Command;
 
-use chrono::{DateTime, Utc};
+use chrono::{DateTime, Local, Utc};
 use serde::Deserialize;
 
 const USAGE_URL: &str = "https://api.anthropic.com/api/oauth/usage";
@@ -57,13 +57,35 @@ pub fn resets_in(window: &Window) -> Option<String> {
         return Some("resetting".to_string());
     }
     let out = if secs >= 86_400 {
-        format!("resets in {}d", secs / 86_400)
+        format!("resets in {}d {}h", secs / 86_400, (secs % 86_400) / 3600)
     } else if secs >= 3600 {
         format!("resets in {}h {}m", secs / 3600, (secs % 3600) / 60)
     } else {
         format!("resets in {}m", secs / 60)
     };
     Some(out)
+}
+
+/// The reset moment as a local wall-clock time, e.g. "14:50" (today),
+/// "Sat 22:00" (this week), or "Jul 08 10:00".
+pub fn reset_clock(window: &Window) -> Option<String> {
+    let local = window.resets_at?.with_timezone(&Local);
+    let now = Local::now();
+    let fmt = if local.date_naive() == now.date_naive() {
+        local.format("%H:%M").to_string()
+    } else if local.signed_duration_since(now).num_days() < 6 {
+        local.format("%a %H:%M").to_string()
+    } else {
+        local.format("%b %d %H:%M").to_string()
+    };
+    Some(fmt)
+}
+
+/// A fixed-width text progress bar, e.g. "████░░░░░░" for 40% at width 10.
+pub fn bar(utilization: f64, width: usize) -> String {
+    let pct = utilization.clamp(0.0, 100.0);
+    let filled = (((pct / 100.0) * width as f64).round() as usize).min(width);
+    format!("{}{}", "█".repeat(filled), "░".repeat(width - filled))
 }
 
 // ---- token resolution -----------------------------------------------------
@@ -226,6 +248,14 @@ mod tests {
             service_name(&home.join(".claude-work"), home),
             format!("Claude Code-credentials-{}", config_hash(&home.join(".claude-work")))
         );
+    }
+
+    #[test]
+    fn bar_fills_proportionally() {
+        assert_eq!(bar(0.0, 10), "░░░░░░░░░░");
+        assert_eq!(bar(50.0, 10), "█████░░░░░");
+        assert_eq!(bar(100.0, 10), "██████████");
+        assert_eq!(bar(150.0, 10), "██████████"); // clamps
     }
 
     #[test]

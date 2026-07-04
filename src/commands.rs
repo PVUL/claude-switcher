@@ -176,9 +176,9 @@ fn usage(mgr: &Manager, json: bool) -> Result<()> {
         match usage {
             Some(u) => {
                 print_window("5-hour", u.five_hour.as_ref());
-                print_window("7-day ", u.seven_day.as_ref());
+                print_window("7-day", u.seven_day.as_ref());
                 if let Some(w) = u.seven_day_opus.as_ref().filter(|w| w.utilization > 0.0) {
-                    print_window("7-day opus", Some(w));
+                    print_window("opus", Some(w));
                 }
             }
             None => println!("      usage:  unavailable (not signed in, token expired, or offline)"),
@@ -193,12 +193,21 @@ fn usage(mgr: &Manager, json: bool) -> Result<()> {
 fn print_window(label: &str, window: Option<&crate::usage::Window>) {
     match window {
         Some(w) => {
-            let resets = crate::usage::resets_in(w)
-                .map(|r| format!("   ({r})"))
-                .unwrap_or_default();
-            println!("      {label}: {:>3}%{resets}", w.utilization.round() as i64);
+            let bar = crate::usage::bar(w.utilization, 20);
+            let pct = w.utilization.round() as i64;
+            let reset = reset_phrase(w);
+            println!("      {label:<7} [{bar}] {pct:>3}%   {reset}");
         }
-        None => println!("      {label}: n/a"),
+        None => println!("      {label:<7} n/a"),
+    }
+}
+
+/// Combine relative and absolute reset info, e.g. "resets in 3h 36m (14:50)".
+fn reset_phrase(window: &crate::usage::Window) -> String {
+    match (crate::usage::resets_in(window), crate::usage::reset_clock(window)) {
+        (Some(rel), Some(clock)) => format!("{rel} ({clock})"),
+        (Some(rel), None) => rel,
+        _ => String::new(),
     }
 }
 

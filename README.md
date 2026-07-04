@@ -150,13 +150,17 @@ consumed, and the TUI displays the same per row (fetched in the background, so
 the UI opens instantly):
 
 ```
-* takeyoung (takeyoung@gmail.com)
-      5-hour:   0%   (resets in 3h 36m)
-      7-day :   0%   (resets in 4d)
-  paul-nhost (paul@nhost.io)
-      5-hour:  20%   (resets in 3h 36m)
-      7-day :   4%   (resets in 17h 46m)
+* paul-nhost (paul@nhost.io)
+      5-hour  [████░░░░░░░░░░░░░░░░]  22%   resets in 3h 30m (15:50)
+      7-day   [█░░░░░░░░░░░░░░░░░░░]   5%   resets in 17h 40m (Sun 06:00)
+  takeyoung (takeyoung@gmail.com)
+      5-hour  [░░░░░░░░░░░░░░░░░░░░]   0%   resets in 3h 30m (15:49)
+      7-day   [░░░░░░░░░░░░░░░░░░░░]   0%   resets in 4d 5h (Wed 17:59)
 ```
+
+The bar is color-coded in the TUI (green / yellow / red as you approach the
+limit), and each window shows both the relative countdown and the local
+wall-clock time it resets.
 
 This is the **only** feature that touches the network, and it's entirely
 opt-in — `list`, `current`, and switching stay fully offline. It reads each

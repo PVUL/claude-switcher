@@ -19,8 +19,8 @@ const ACCENT: Color = Color::Cyan;
 
 /// Chrome that surrounds the profile list (borders + title + footer lines).
 pub const CHROME_LINES: u16 = 6;
-/// Each profile occupies this many rows in the list (name, usage, detail).
-pub const ROWS_PER_PROFILE: u16 = 3;
+/// Each profile occupies this many rows (name, 5h bar, 7d bar, last-used).
+pub const ROWS_PER_PROFILE: u16 = 4;
 
 pub fn draw(f: &mut Frame, app: &App) {
     let chunks = Layout::default()
@@ -95,11 +95,10 @@ fn draw_list(f: &mut Frame, area: Rect, app: &App) {
                     format!("   [{}]", tags.join(", "))
                 }
             );
-            ListItem::new(vec![
-                Line::from(spans),
-                usage_line(app.usage(&p.name)),
-                Line::from(Span::styled(detail, Style::default().fg(Color::DarkGray))),
-            ])
+            let mut lines = vec![Line::from(spans)];
+            append_usage_lines(&mut lines, app.usage(&p.name));
+            lines.push(Line::from(Span::styled(detail, Style::default().fg(Color::DarkGray))));
+            ListItem::new(lines)
         })
         .collect();
 
@@ -119,49 +118,70 @@ fn draw_list(f: &mut Frame, area: Rect, app: &App) {
     f.render_stateful_widget(list, area, &mut state);
 }
 
-/// The usage line for a profile: a colored 5-hour / 7-day summary, or a
-/// loading / unavailable hint.
-fn usage_line(state: Option<&UsageState>) -> Line<'static> {
+/// Append the two usage rows (5-hour and 7-day) for a profile, each a labeled
+/// progress bar with its reset time — or loading / unavailable placeholders.
+/// Always adds exactly two lines so every profile has a fixed height.
+fn append_usage_lines(lines: &mut Vec<Line<'static>>, state: Option<&UsageState>) {
     let dim = Style::default().fg(Color::DarkGray);
     match state {
         Some(UsageState::Ready(u)) => {
-            let mut spans = vec![Span::styled("     usage: ", dim)];
-            spans.extend(window_span("5h", u.five_hour.as_ref()));
-            spans.push(Span::styled("  ", dim));
-            spans.extend(window_span("7d", u.seven_day.as_ref()));
-            if let Some(w) = u.seven_day_opus.as_ref().filter(|w| w.utilization > 0.0) {
-                spans.push(Span::styled("  ", dim));
-                spans.extend(window_span("opus", Some(w)));
-            }
-            Line::from(spans)
+            lines.push(window_bar_line("5h", u.five_hour.as_ref(), None));
+            let opus = u.seven_day_opus.as_ref().filter(|w| w.utilization > 0.0);
+            lines.push(window_bar_line("7d", u.seven_day.as_ref(), opus));
         }
         Some(UsageState::Loading) | None => {
-            Line::from(Span::styled("     usage: …", dim))
+            lines.push(Line::from(Span::styled("     usage …", dim)));
+            lines.push(Line::from(Span::raw("")));
         }
         Some(UsageState::Unavailable) => {
-            Line::from(Span::styled("     usage: unavailable", dim))
+            lines.push(Line::from(Span::styled("     usage unavailable", dim)));
+            lines.push(Line::from(Span::raw("")));
         }
     }
 }
 
-fn window_span(label: &str, window: Option<&crate::usage::Window>) -> Vec<Span<'static>> {
+fn window_bar_line(
+    label: &str,
+    window: Option<&crate::usage::Window>,
+    opus: Option<&crate::usage::Window>,
+) -> Line<'static> {
     let dim = Style::default().fg(Color::DarkGray);
-    match window {
-        Some(w) => {
-            let pct = w.utilization.round() as i64;
-            let color = if pct >= 90 {
-                Color::Red
-            } else if pct >= 70 {
-                Color::Yellow
-            } else {
-                Color::Green
-            };
-            vec![
-                Span::styled(format!("{label} "), dim),
-                Span::styled(format!("{pct}%"), Style::default().fg(color)),
-            ]
-        }
-        None => vec![Span::styled(format!("{label} n/a"), dim)],
+    let Some(w) = window else {
+        return Line::from(Span::styled(format!("     {label} n/a"), dim));
+    };
+    let pct = w.utilization.round() as i64;
+    let color = threshold_color(pct);
+    let mut spans = vec![
+        Span::styled(format!("     {label} "), dim),
+        Span::styled(crate::usage::bar(w.utilization, 16), Style::default().fg(color)),
+        Span::styled(format!(" {pct:>3}%"), Style::default().fg(color)),
+        Span::styled(format!("  {}", reset_phrase(w)), dim),
+    ];
+    if let Some(o) = opus {
+        spans.push(Span::styled(
+            format!("  · opus {}%", o.utilization.round() as i64),
+            dim,
+        ));
+    }
+    Line::from(spans)
+}
+
+fn threshold_color(pct: i64) -> Color {
+    if pct >= 90 {
+        Color::Red
+    } else if pct >= 70 {
+        Color::Yellow
+    } else {
+        Color::Green
+    }
+}
+
+/// e.g. "resets in 3h 36m (14:50)".
+fn reset_phrase(window: &crate::usage::Window) -> String {
+    match (crate::usage::resets_in(window), crate::usage::reset_clock(window)) {
+        (Some(rel), Some(clock)) => format!("{rel} ({clock})"),
+        (Some(rel), None) => rel,
+        _ => String::new(),
     }
 }
 
