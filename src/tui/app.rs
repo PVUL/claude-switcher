@@ -54,9 +54,13 @@ pub struct App<'m> {
     usage: HashMap<String, UsageState>,
     usage_tx: Sender<(String, UsageState)>,
     usage_rx: Receiver<(String, UsageState)>,
-    /// When usage was last (re)fetched — drives the header timestamp and the
-    /// once-per-minute refresh debounce.
+    /// When usage was last (re)fetched — drives the header timestamp, the
+    /// once-per-minute manual-refresh debounce, and the auto-refresh timer.
     last_updated: DateTime<Local>,
+    /// Whether usage is polled on a timer (persisted).
+    auto_refresh: bool,
+    /// Auto-refresh interval, in seconds (from config).
+    poll_interval_secs: u64,
 }
 
 /// Minimum gap between manual usage refreshes.
@@ -68,6 +72,8 @@ impl<'m> App<'m> {
         let order = profiles.iter().map(|p| p.name.clone()).collect();
         let home = manager.paths().home.clone();
         let active_link = manager.paths().active_link();
+        let auto_refresh = manager.settings().auto_refresh;
+        let poll_interval_secs = manager.settings().poll_interval_secs;
         let (usage_tx, usage_rx) = mpsc::channel();
         let mut app = App {
             manager,
@@ -85,6 +91,8 @@ impl<'m> App<'m> {
             usage_tx,
             usage_rx,
             last_updated: Local::now(),
+            auto_refresh,
+            poll_interval_secs,
         };
         let profiles = app.profiles.clone();
         for p in &profiles {
@@ -146,12 +154,17 @@ impl<'m> App<'m> {
         }
     }
 
+    /// Header toggle label, e.g. "auto-refresh: on".
+    pub fn auto_refresh_label(&self) -> String {
+        format!("auto-refresh: {}", if self.auto_refresh { "on" } else { "off" })
+    }
+
     pub fn profiles(&self) -> &[Profile] {
         &self.profiles
     }
 
-    /// Whether the header Refresh control is currently focused.
-    pub fn refresh_focused(&self) -> bool {
+    /// Whether the header control (the auto-refresh toggle) is focused.
+    pub fn header_focused(&self) -> bool {
         self.selected == 0
     }
 
@@ -209,32 +222,60 @@ impl<'m> App<'m> {
         self.selected = (self.selected + n - 1) % n;
     }
 
-    /// Enter: refresh usage if the header control is focused, else switch.
+    /// Enter: toggle auto-refresh if the header control is focused, else switch.
     pub fn activate(&mut self) {
-        if self.refresh_focused() {
-            self.refresh();
+        if self.header_focused() {
+            self.toggle_auto_refresh();
         } else {
             self.switch_selected();
         }
     }
 
-    /// Re-fetch usage for every profile, debounced to once per minute.
-    pub fn refresh(&mut self) {
-        let elapsed = Local::now().signed_duration_since(self.last_updated);
-        let remaining = REFRESH_COOLDOWN_SECS - elapsed.num_seconds();
+    /// Toggle and persist the auto-refresh preference.
+    pub fn toggle_auto_refresh(&mut self) {
+        self.auto_refresh = !self.auto_refresh;
+        let _ = self.manager.set_auto_refresh(self.auto_refresh);
+        self.status = Some(format!(
+            "Auto-refresh {}",
+            if self.auto_refresh { "on" } else { "off" }
+        ));
+    }
+
+    /// Manual refresh ('r'): re-fetch usage, debounced to once per minute. A
+    /// successful refresh also resets the auto-refresh timer.
+    pub fn manual_refresh(&mut self) {
+        let remaining =
+            REFRESH_COOLDOWN_SECS - Local::now().signed_duration_since(self.last_updated).num_seconds();
         if remaining > 0 {
             self.status = Some(format!(
                 "Usage refreshes at most once/min — try again in {remaining}s"
             ));
             return;
         }
+        self.do_refresh();
+        self.status = Some("Refreshing usage…".to_string());
+    }
+
+    /// Called each UI tick: re-fetch when auto-refresh is on and the interval
+    /// has elapsed. (The interval is well above the manual debounce window.)
+    pub fn tick_auto_refresh(&mut self) {
+        if !self.auto_refresh {
+            return;
+        }
+        let elapsed = Local::now().signed_duration_since(self.last_updated).num_seconds();
+        if elapsed >= self.poll_interval_secs as i64 {
+            self.do_refresh();
+        }
+    }
+
+    /// Reset usage to Loading and spawn fresh lookups; resets the poll timer.
+    fn do_refresh(&mut self) {
         self.last_updated = Local::now();
         self.usage.clear();
         let profiles = self.profiles.clone();
         for p in &profiles {
             self.begin_usage_fetch(p);
         }
-        self.status = Some("Refreshing usage…".to_string());
     }
 
     pub fn switch_selected(&mut self) {
@@ -413,7 +454,36 @@ mod tests {
     }
 
     #[test]
-    fn refresh_row_and_debounce() {
+    fn header_toggles_auto_refresh_and_persists() {
+        let dir = tempdir().unwrap();
+        {
+            let mut mgr = manager(dir.path());
+            let mut app = App::new(&mut mgr);
+            app.begin_add();
+            for ch in "solo".chars() {
+                app.input_push(ch);
+            }
+            app.commit_input();
+
+            // Focus starts on the header toggle; no profile is selected there.
+            app.selected = 0;
+            assert!(app.header_focused());
+            assert!(app.selected_profile().is_none());
+            assert_eq!(app.auto_refresh_label(), "auto-refresh: off");
+
+            // Enter toggles auto-refresh on.
+            app.activate();
+            assert_eq!(app.auto_refresh_label(), "auto-refresh: on");
+        }
+        // Persisted across a reload.
+        let mut mgr = manager(dir.path());
+        assert!(mgr.settings().auto_refresh);
+        let app = App::new(&mut mgr);
+        assert_eq!(app.auto_refresh_label(), "auto-refresh: on");
+    }
+
+    #[test]
+    fn manual_refresh_is_debounced() {
         let dir = tempdir().unwrap();
         let mut mgr = manager(dir.path());
         let mut app = App::new(&mut mgr);
@@ -423,24 +493,21 @@ mod tests {
         }
         app.commit_input();
 
-        // Focus starts on the Refresh control; no profile is selected there.
-        app.selected = 0;
-        assert!(app.refresh_focused());
-        assert!(app.selected_profile().is_none());
-
-        // Enter on the header refreshes, but the just-loaded data is debounced.
-        app.activate();
+        // Just-loaded data is fresh, so a manual refresh is rate-limited.
+        app.manual_refresh();
         assert!(
             app.status.as_deref().unwrap().contains("once/min"),
             "got {:?}",
             app.status
         );
 
-        // Navigation wraps over [refresh, solo].
+        // Navigation wraps over [header, solo].
+        app.selected = 0;
+        assert!(app.header_focused());
         app.select_next();
         assert_eq!(app.selected_profile().unwrap().name, "solo");
         app.select_next();
-        assert!(app.refresh_focused());
+        assert!(app.header_focused());
     }
 
     #[test]

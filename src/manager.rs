@@ -12,7 +12,7 @@ use std::path::{Path, PathBuf};
 
 use crate::detect;
 use crate::error::{Error, Result};
-use crate::metadata::{Metadata, ProfileMeta};
+use crate::metadata::{Metadata, ProfileMeta, Settings};
 use crate::paths::Paths;
 use crate::profile::{validate_name, Profile};
 use crate::symlink;
@@ -36,6 +36,17 @@ impl Manager {
 
     pub fn paths(&self) -> &Paths {
         &self.paths
+    }
+
+    /// Persisted user settings (auto-refresh, poll interval).
+    pub fn settings(&self) -> &Settings {
+        &self.meta.settings
+    }
+
+    /// Persist the auto-refresh preference.
+    pub fn set_auto_refresh(&mut self, on: bool) -> Result<()> {
+        self.meta.settings.auto_refresh = on;
+        self.save()
     }
 
     /// Determine the active profile name by resolving the symlink target and

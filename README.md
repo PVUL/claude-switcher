@@ -129,19 +129,28 @@ Once signed in, `claude-switcher` reads the account email from the profile's
 
 | Key            | Action                          |
 | -------------- | ------------------------------- |
-| `↑`/`k`, `↓`/`j` | Move selection (incl. the header Refresh control) |
-| `Enter`        | Switch to selected profile, or refresh usage when the Refresh control is focused |
+| `↑`/`k`, `↓`/`j` | Move selection (incl. the header auto-refresh toggle) |
+| `Enter`        | Switch to selected profile — or toggle auto-refresh when the header is focused |
+| `R`            | Manual refresh of usage (also resets the auto-refresh timer) |
 | `A`            | Add a profile                   |
-| `R`            | Rename the selected profile     |
+| `E`            | Rename (edit) the selected profile |
 | `D`            | Delete (unmanage) the profile   |
 | `Q` / `Esc`    | Quit                            |
 
 No mouse required.
 
-The header has a **Refresh** control (with a "last updated" time beside it).
-Select it and press Enter to re-pull usage — debounced to at most once per
-minute. Parking the selector on Refresh also un-highlights every profile row,
-so the list stays easy to read.
+The header shows the **last-updated time** on the left and an **auto-refresh**
+toggle on the right. Move up to the toggle and press Enter to turn periodic
+polling on/off (remembered across sessions). Press `R` anytime for a manual
+refresh (debounced to once per minute). Parking the selector on the header also
+un-highlights every profile row, so the list stays easy to read.
+
+Auto-refresh polls every 10 minutes by default; change `pollIntervalSecs` in
+`~/.config/claude-switcher/profiles.json`:
+
+```json
+"settings": { "autoRefresh": true, "pollIntervalSecs": 600 }
+```
 
 The list is ordered active-first, then by most-recent usage. That order is
 fixed when the TUI opens and stays put while you navigate — switching moves the

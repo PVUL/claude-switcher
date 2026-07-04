@@ -5,7 +5,7 @@
 //! whole thing fits in a small inline viewport rather than taking over the
 //! terminal.
 
-use ratatui::layout::{Constraint, Direction, Layout, Rect};
+use ratatui::layout::{Alignment, Constraint, Direction, Layout, Rect};
 use ratatui::style::{Color, Modifier, Style};
 use ratatui::text::{Line, Span};
 use ratatui::widgets::{Block, Borders, HighlightSpacing, List, ListItem, ListState, Paragraph};
@@ -47,23 +47,37 @@ pub fn draw(f: &mut Frame, app: &App) {
 }
 
 fn draw_title(f: &mut Frame, area: Rect, app: &App) {
-    // The Refresh control is a focusable "row": when selected it highlights
-    // here (and no profile row is highlighted, leaving the list easy to read).
-    let refresh_style = if app.refresh_focused() {
+    let block = Block::default().borders(Borders::ALL);
+    let inner = block.inner(area);
+    f.render_widget(block, area);
+
+    let cols = Layout::default()
+        .direction(Direction::Horizontal)
+        .constraints([Constraint::Min(10), Constraint::Length(24)])
+        .split(inner);
+
+    // Left: title + last-updated timestamp.
+    let left = Line::from(vec![
+        Span::styled(" Claude Accounts", Style::default().add_modifier(Modifier::BOLD)),
+        Span::raw("   "),
+        Span::styled(app.updated_label(), secondary()),
+    ]);
+    f.render_widget(Paragraph::new(left), cols[0]);
+
+    // Right: the auto-refresh toggle — a focusable "row" (Enter toggles it).
+    // When focused it highlights here and no profile row is highlighted,
+    // leaving the list easy to read.
+    let toggle_style = if app.header_focused() {
         Style::default().bg(SELECTION_BG).fg(ACCENT).add_modifier(Modifier::BOLD)
     } else {
         secondary()
     };
-    let marker = if app.refresh_focused() { "› " } else { "  " };
-    let line = Line::from(vec![
-        Span::styled(" Claude Accounts", Style::default().add_modifier(Modifier::BOLD)),
-        Span::raw("   "),
-        Span::styled(format!("{marker}↻ Refresh "), refresh_style),
-        Span::raw("  "),
-        Span::styled(app.updated_label(), secondary()),
-    ]);
-    let p = Paragraph::new(line).block(Block::default().borders(Borders::ALL));
-    f.render_widget(p, area);
+    let marker = if app.header_focused() { "› " } else { "" };
+    let right = Line::from(Span::styled(
+        format!("{marker}{} ", app.auto_refresh_label()),
+        toggle_style,
+    ));
+    f.render_widget(Paragraph::new(right).alignment(Alignment::Right), cols[1]);
 }
 
 fn draw_list(f: &mut Frame, area: Rect, app: &App) {
@@ -228,10 +242,10 @@ fn draw_footer(f: &mut Frame, area: Rect, app: &App) {
             } else {
                 // Keys depend on focus: on the header Refresh control you can't
                 // switch/rename/delete a profile, and Enter just refreshes.
-                let keys = if app.refresh_focused() {
-                    " ↑↓ move · enter refresh · a add · q quit"
+                let keys = if app.header_focused() {
+                    " ↑↓ move · enter toggle auto-refresh · r refresh · a add · q quit"
                 } else {
-                    " ↑↓ move · enter switch · a add · r rename · d delete · q quit"
+                    " ↑↓ move · enter switch · r refresh · a add · e rename · d delete · q quit"
                 };
                 Line::from(Span::styled(keys, secondary()))
             }

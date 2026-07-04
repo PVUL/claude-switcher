@@ -25,6 +25,31 @@ pub struct ProfileMeta {
 }
 
 /// Top-level document written to disk.
+/// User-adjustable settings, persisted alongside the profiles so they survive
+/// across sessions. The polling interval can be hand-edited in the file.
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+pub struct Settings {
+    /// Whether the TUI polls usage on a timer.
+    #[serde(default, rename = "autoRefresh")]
+    pub auto_refresh: bool,
+    /// Auto-refresh interval in seconds (default 10 minutes).
+    #[serde(default = "default_poll_interval", rename = "pollIntervalSecs")]
+    pub poll_interval_secs: u64,
+}
+
+fn default_poll_interval() -> u64 {
+    600
+}
+
+impl Default for Settings {
+    fn default() -> Self {
+        Settings {
+            auto_refresh: false,
+            poll_interval_secs: default_poll_interval(),
+        }
+    }
+}
+
 #[derive(Debug, Clone, Default, PartialEq, Eq, Serialize, Deserialize)]
 pub struct Metadata {
     /// Cached active-profile name. The symlink remains authoritative.
@@ -32,6 +57,8 @@ pub struct Metadata {
     pub active: Option<String>,
     #[serde(default)]
     pub profiles: Vec<ProfileMeta>,
+    #[serde(default)]
+    pub settings: Settings,
 }
 
 impl Metadata {
@@ -95,6 +122,10 @@ mod tests {
                 path: "~/.claude-work".into(),
                 email: Some("paul@nhost.io".into()),
             }],
+            settings: Settings {
+                auto_refresh: true,
+                poll_interval_secs: 300,
+            },
         };
         meta.save(&path).unwrap();
         let reloaded = Metadata::load(&path).unwrap();

@@ -64,6 +64,7 @@ fn event_loop(
 ) -> Result<()> {
     loop {
         app.pump_usage();
+        app.tick_auto_refresh();
         terminal.draw(|f| ui::draw(f, &app))?;
 
         // Poll so the UI keeps refreshing as background usage lookups land,
@@ -108,7 +109,8 @@ fn handle_normal(app: &mut App, key: KeyEvent) {
         KeyCode::Up | KeyCode::Char('k') => app.select_prev(),
         KeyCode::Enter => app.activate(),
         KeyCode::Char('a') | KeyCode::Char('A') => app.begin_add(),
-        KeyCode::Char('r') | KeyCode::Char('R') => app.begin_rename(),
+        KeyCode::Char('r') | KeyCode::Char('R') => app.manual_refresh(),
+        KeyCode::Char('e') | KeyCode::Char('E') => app.begin_rename(),
         KeyCode::Char('d') | KeyCode::Char('D') => app.begin_delete(),
         _ => {}
     }
