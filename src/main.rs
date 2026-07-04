@@ -10,6 +10,7 @@ mod paths;
 mod profile;
 mod symlink;
 mod tui;
+mod usage;
 
 use std::process::ExitCode;
 
@@ -38,7 +39,7 @@ fn run(cli: Cli) -> error::Result<()> {
     // already signed in to so the tool shows your current account right away.
     let bootstrap = matches!(
         cli.command,
-        None | Some(Command::List { .. }) | Some(Command::Current)
+        None | Some(Command::List { .. }) | Some(Command::Current) | Some(Command::Usage { .. })
     );
     if bootstrap {
         let adopted = manager.bootstrap_if_empty()?;

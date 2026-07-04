@@ -1,0 +1,240 @@
+//! Best-effort usage-limit lookup for a profile.
+//!
+//! This is the one place the tool talks to the network, and it is entirely
+//! opt-in (the `usage` command and the TUI). Everything degrades gracefully:
+//! if the token can't be found or the request fails, we simply report that
+//! usage is unavailable — the core switching never depends on it.
+//!
+//! How it works (reverse-engineered from Claude Code itself):
+//!   * The OAuth access token for a config dir is stored either in a
+//!     `<dir>/.credentials.json` file (Linux) or the macOS Keychain under the
+//!     service `Claude Code-credentials` for the default `~/.claude`, or
+//!     `Claude Code-credentials-<first 8 hex of sha256(abs config dir)>` for any
+//!     other config directory.
+//!   * Usage is a GET to `https://api.anthropic.com/api/oauth/usage` with the
+//!     token as a bearer and the `anthropic-beta: oauth-2025-04-20` header.
+
+use std::path::{Path, PathBuf};
+use std::process::Command;
+
+use chrono::{DateTime, Utc};
+use serde::Deserialize;
+
+const USAGE_URL: &str = "https://api.anthropic.com/api/oauth/usage";
+const OAUTH_BETA: &str = "oauth-2025-04-20";
+const USER_AGENT: &str = "claude-code/2.0.32";
+
+/// A single rate-limit window (e.g. the rolling 5-hour or 7-day limit).
+#[derive(Debug, Clone, PartialEq)]
+pub struct Window {
+    /// Percent of the limit consumed (0–100).
+    pub utilization: f64,
+    pub resets_at: Option<DateTime<Utc>>,
+}
+
+/// Usage limits for an account.
+#[derive(Debug, Clone, PartialEq)]
+pub struct Usage {
+    pub five_hour: Option<Window>,
+    pub seven_day: Option<Window>,
+    pub seven_day_opus: Option<Window>,
+}
+
+/// Fetch usage for the profile at `profile_path`. `active_link` should be the
+/// active symlink path when this profile is the active one (Claude may key the
+/// token by the path it was launched with). Returns `None` if we can't get a
+/// token or the request fails.
+pub fn fetch(profile_path: &Path, home: &Path, active_link: Option<&Path>) -> Option<Usage> {
+    let token = access_token(profile_path, home, active_link)?;
+    call_api(&token)
+}
+
+/// Human phrasing of when a window resets, e.g. "resets in 2h 5m".
+pub fn resets_in(window: &Window) -> Option<String> {
+    let resets_at = window.resets_at?;
+    let secs = resets_at.signed_duration_since(Utc::now()).num_seconds();
+    if secs <= 0 {
+        return Some("resetting".to_string());
+    }
+    let out = if secs >= 86_400 {
+        format!("resets in {}d", secs / 86_400)
+    } else if secs >= 3600 {
+        format!("resets in {}h {}m", secs / 3600, (secs % 3600) / 60)
+    } else {
+        format!("resets in {}m", secs / 60)
+    };
+    Some(out)
+}
+
+// ---- token resolution -----------------------------------------------------
+
+fn access_token(profile_path: &Path, home: &Path, active_link: Option<&Path>) -> Option<String> {
+    // Linux (and any install that writes the token to disk).
+    if let Some(t) = token_from_file(profile_path) {
+        return Some(t);
+    }
+    // macOS Keychain.
+    #[cfg(target_os = "macos")]
+    {
+        for service in keychain_services(profile_path, home, active_link) {
+            if let Some(t) = token_from_keychain(&service) {
+                return Some(t);
+            }
+        }
+    }
+    #[cfg(not(target_os = "macos"))]
+    {
+        let _ = (home, active_link);
+    }
+    None
+}
+
+fn token_from_file(dir: &Path) -> Option<String> {
+    let text = std::fs::read_to_string(dir.join(".credentials.json")).ok()?;
+    parse_token(&text)
+}
+
+/// Candidate Keychain service names for a profile, most specific first.
+fn keychain_services(profile_path: &Path, home: &Path, active_link: Option<&Path>) -> Vec<String> {
+    let mut paths: Vec<PathBuf> = Vec::new();
+    let resolved = std::fs::canonicalize(profile_path).unwrap_or_else(|_| profile_path.to_path_buf());
+    paths.push(resolved.clone());
+    if resolved != profile_path {
+        paths.push(profile_path.to_path_buf());
+    }
+    // When active, Claude may have keyed the token by the symlink it launched
+    // with rather than the resolved directory.
+    if let Some(link) = active_link {
+        paths.push(link.to_path_buf());
+    }
+
+    let mut services: Vec<String> = paths.iter().map(|p| service_name(p, home)).collect();
+    services.dedup();
+    services
+}
+
+fn service_name(path: &Path, home: &Path) -> String {
+    if path == home.join(".claude") {
+        "Claude Code-credentials".to_string()
+    } else {
+        format!("Claude Code-credentials-{}", config_hash(path))
+    }
+}
+
+/// First 8 hex chars of `sha256(path)` — Claude Code's per-config-dir suffix.
+fn config_hash(path: &Path) -> String {
+    use sha2::{Digest, Sha256};
+    let mut hasher = Sha256::new();
+    hasher.update(path.to_string_lossy().as_bytes());
+    let digest = hasher.finalize();
+    format!("{:02x}{:02x}{:02x}{:02x}", digest[0], digest[1], digest[2], digest[3])
+}
+
+#[cfg(target_os = "macos")]
+fn token_from_keychain(service: &str) -> Option<String> {
+    let output = Command::new("security")
+        .args(["find-generic-password", "-s", service, "-w"])
+        .output()
+        .ok()?;
+    if !output.status.success() {
+        return None;
+    }
+    parse_token(&String::from_utf8_lossy(&output.stdout))
+}
+
+/// Extract the access token from a credentials JSON blob (Keychain or file).
+fn parse_token(text: &str) -> Option<String> {
+    let value: serde_json::Value = serde_json::from_str(text.trim()).ok()?;
+    value
+        .pointer("/claudeAiOauth/accessToken")
+        .or_else(|| value.get("accessToken"))
+        .and_then(|v| v.as_str())
+        .map(str::to_string)
+}
+
+// ---- API call -------------------------------------------------------------
+
+#[derive(Deserialize)]
+struct RawWindow {
+    utilization: f64,
+    resets_at: Option<String>,
+}
+
+#[derive(Deserialize)]
+struct RawUsage {
+    five_hour: Option<RawWindow>,
+    seven_day: Option<RawWindow>,
+    seven_day_opus: Option<RawWindow>,
+}
+
+fn call_api(token: &str) -> Option<Usage> {
+    let output = Command::new("curl")
+        .args([
+            "-s",
+            "--max-time",
+            "6",
+            USAGE_URL,
+            "-H",
+            "Accept: application/json",
+            "-H",
+            &format!("anthropic-beta: {OAUTH_BETA}"),
+            "-H",
+            &format!("User-Agent: {USER_AGENT}"),
+            "-H",
+            &format!("Authorization: Bearer {token}"),
+        ])
+        .output()
+        .ok()?;
+    if !output.status.success() {
+        return None;
+    }
+    let raw: RawUsage = serde_json::from_slice(&output.stdout).ok()?;
+    Some(Usage {
+        five_hour: raw.five_hour.map(Window::from),
+        seven_day: raw.seven_day.map(Window::from),
+        seven_day_opus: raw.seven_day_opus.map(Window::from),
+    })
+}
+
+impl From<RawWindow> for Window {
+    fn from(raw: RawWindow) -> Self {
+        Window {
+            utilization: raw.utilization,
+            resets_at: raw
+                .resets_at
+                .and_then(|s| DateTime::parse_from_rfc3339(&s).ok())
+                .map(|d| d.with_timezone(&Utc)),
+        }
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn config_hash_matches_claude_code() {
+        // Verified against a real Keychain entry created by Claude Code.
+        assert_eq!(config_hash(Path::new("/Users/pyun/.claude-takeyoung")), "fd08061c");
+    }
+
+    #[test]
+    fn default_dir_uses_plain_service_name() {
+        let home = Path::new("/Users/pyun");
+        assert_eq!(service_name(&home.join(".claude"), home), "Claude Code-credentials");
+        assert_eq!(
+            service_name(&home.join(".claude-work"), home),
+            format!("Claude Code-credentials-{}", config_hash(&home.join(".claude-work")))
+        );
+    }
+
+    #[test]
+    fn parses_token_from_both_shapes() {
+        assert_eq!(
+            parse_token(r#"{"claudeAiOauth":{"accessToken":"abc"}}"#).as_deref(),
+            Some("abc")
+        );
+        assert_eq!(parse_token(r#"{"accessToken":"xyz"}"#).as_deref(), Some("xyz"));
+        assert_eq!(parse_token("not json"), None);
+    }
+}

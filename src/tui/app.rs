@@ -1,8 +1,22 @@
 //! TUI state machine, kept free of any rendering or terminal I/O so it can be
 //! unit-tested in isolation.
 
+use std::collections::HashMap;
+use std::path::PathBuf;
+use std::sync::mpsc::{self, Receiver, Sender};
+use std::thread;
+
 use crate::manager::Manager;
 use crate::profile::Profile;
+use crate::usage::Usage;
+
+/// Per-profile usage-fetch state, updated as background lookups complete.
+#[derive(Debug, Clone)]
+pub enum UsageState {
+    Loading,
+    Ready(Usage),
+    Unavailable,
+}
 
 /// What the user is currently doing.
 #[derive(Debug, Clone, PartialEq, Eq)]
@@ -30,13 +44,22 @@ pub struct App<'m> {
     pub mode: Mode,
     pub status: Option<String>,
     pub should_quit: bool,
+    // Background usage lookups.
+    home: PathBuf,
+    active_link: PathBuf,
+    usage: HashMap<String, UsageState>,
+    usage_tx: Sender<(String, UsageState)>,
+    usage_rx: Receiver<(String, UsageState)>,
 }
 
 impl<'m> App<'m> {
     pub fn new(manager: &'m mut Manager) -> Self {
         let profiles = manager.profiles();
         let order = profiles.iter().map(|p| p.name.clone()).collect();
-        App {
+        let home = manager.paths().home.clone();
+        let active_link = manager.paths().active_link();
+        let (usage_tx, usage_rx) = mpsc::channel();
+        let mut app = App {
             manager,
             profiles,
             order,
@@ -44,7 +67,56 @@ impl<'m> App<'m> {
             mode: Mode::Normal,
             status: None,
             should_quit: false,
+            home,
+            active_link,
+            usage: HashMap::new(),
+            usage_tx,
+            usage_rx,
+        };
+        let profiles = app.profiles.clone();
+        for p in &profiles {
+            app.begin_usage_fetch(p);
         }
+        app
+    }
+
+    /// Kick off a background usage lookup for a profile, if not already tracked.
+    fn begin_usage_fetch(&mut self, profile: &Profile) {
+        if self.usage.contains_key(&profile.name) {
+            return;
+        }
+        if !profile.exists {
+            self.usage.insert(profile.name.clone(), UsageState::Unavailable);
+            return;
+        }
+        self.usage.insert(profile.name.clone(), UsageState::Loading);
+        let tx = self.usage_tx.clone();
+        let name = profile.name.clone();
+        let path = profile.path.clone();
+        let home = self.home.clone();
+        let link = if profile.active {
+            Some(self.active_link.clone())
+        } else {
+            None
+        };
+        thread::spawn(move || {
+            let state = match crate::usage::fetch(&path, &home, link.as_deref()) {
+                Some(u) => UsageState::Ready(u),
+                None => UsageState::Unavailable,
+            };
+            let _ = tx.send((name, state));
+        });
+    }
+
+    /// Drain completed usage lookups into state. Call once per UI tick.
+    pub fn pump_usage(&mut self) {
+        while let Ok((name, state)) = self.usage_rx.try_recv() {
+            self.usage.insert(name, state);
+        }
+    }
+
+    pub fn usage(&self, name: &str) -> Option<&UsageState> {
+        self.usage.get(name)
     }
 
     pub fn profiles(&self) -> &[Profile] {
@@ -75,6 +147,11 @@ impl<'m> App<'m> {
         self.profiles = ordered;
         if self.selected >= self.profiles.len() {
             self.selected = self.profiles.len().saturating_sub(1);
+        }
+        // Fetch usage for any profile added since the session started.
+        let profiles = self.profiles.clone();
+        for p in &profiles {
+            self.begin_usage_fetch(p);
         }
     }
 

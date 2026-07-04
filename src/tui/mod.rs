@@ -35,7 +35,7 @@ pub fn run(manager: &mut Manager) -> Result<()> {
 /// terminal. The list scrolls if there are more profiles than fit.
 fn viewport_height(profiles: usize) -> u16 {
     let content = CHROME_LINES + ROWS_PER_PROFILE * profiles.max(1) as u16;
-    content.clamp(CHROME_LINES + ROWS_PER_PROFILE, 18)
+    content.clamp(CHROME_LINES + ROWS_PER_PROFILE, 24)
 }
 
 fn setup_terminal(height: u16) -> Result<Terminal<CrosstermBackend<Stdout>>> {
@@ -63,8 +63,14 @@ fn event_loop(
     mut app: App,
 ) -> Result<()> {
     loop {
+        app.pump_usage();
         terminal.draw(|f| ui::draw(f, &app))?;
 
+        // Poll so the UI keeps refreshing as background usage lookups land,
+        // rather than blocking indefinitely on a keypress.
+        if !event::poll(std::time::Duration::from_millis(200))? {
+            continue;
+        }
         let Event::Key(key) = event::read()? else {
             continue;
         };

@@ -51,6 +51,7 @@ pub fn run(cmd: Command, mgr: &mut Manager) -> Result<()> {
             None => println!("(no active profile)"),
         },
         Command::List { json } => list(mgr, json)?,
+        Command::Usage { json } => usage(mgr, json)?,
         Command::Env => print_env(mgr),
     }
     Ok(())
@@ -143,6 +144,82 @@ fn list(mgr: &Manager, json: bool) -> Result<()> {
         println!("      authenticated: {}", if p.authenticated { "yes" } else { "no" });
     }
     Ok(())
+}
+
+fn usage(mgr: &Manager, json: bool) -> Result<()> {
+    let home = mgr.paths().home.clone();
+    let link = mgr.paths().active_link();
+    let profiles = mgr.profiles();
+    if profiles.is_empty() {
+        println!("No profiles yet.");
+        return Ok(());
+    }
+
+    let mut json_items: Vec<serde_json::Value> = Vec::new();
+    for p in &profiles {
+        let active_link = if p.active { Some(link.as_path()) } else { None };
+        let usage = if p.exists {
+            crate::usage::fetch(&p.path, &home, active_link)
+        } else {
+            None
+        };
+        if json {
+            json_items.push(usage_json(p, usage.as_ref()));
+            continue;
+        }
+        let marker = if p.active { "*" } else { " " };
+        let mut header = format!("{marker} {}", p.name);
+        if let Some(email) = &p.email {
+            header.push_str(&format!(" ({email})"));
+        }
+        println!("{header}");
+        match usage {
+            Some(u) => {
+                print_window("5-hour", u.five_hour.as_ref());
+                print_window("7-day ", u.seven_day.as_ref());
+                if let Some(w) = u.seven_day_opus.as_ref().filter(|w| w.utilization > 0.0) {
+                    print_window("7-day opus", Some(w));
+                }
+            }
+            None => println!("      usage:  unavailable (not signed in, token expired, or offline)"),
+        }
+    }
+    if json {
+        println!("{}", serde_json::to_string_pretty(&json_items).expect("serializable"));
+    }
+    Ok(())
+}
+
+fn print_window(label: &str, window: Option<&crate::usage::Window>) {
+    match window {
+        Some(w) => {
+            let resets = crate::usage::resets_in(w)
+                .map(|r| format!("   ({r})"))
+                .unwrap_or_default();
+            println!("      {label}: {:>3}%{resets}", w.utilization.round() as i64);
+        }
+        None => println!("      {label}: n/a"),
+    }
+}
+
+fn usage_json(p: &Profile, usage: Option<&crate::usage::Usage>) -> serde_json::Value {
+    let win = |w: Option<&crate::usage::Window>| {
+        w.map(|w| {
+            serde_json::json!({
+                "utilization": w.utilization,
+                "resetsAt": w.resets_at,
+            })
+        })
+    };
+    serde_json::json!({
+        "name": p.name,
+        "email": p.email,
+        "active": p.active,
+        "available": usage.is_some(),
+        "fiveHour": usage.and_then(|u| win(u.five_hour.as_ref())),
+        "sevenDay": usage.and_then(|u| win(u.seven_day.as_ref())),
+        "sevenDayOpus": usage.and_then(|u| win(u.seven_day_opus.as_ref())),
+    })
 }
 
 fn describe(p: &Profile) -> String {

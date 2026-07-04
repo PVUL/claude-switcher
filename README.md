@@ -80,6 +80,7 @@ claude-switcher add work             # create ~/.claude-work (first one becomes 
 claude-switcher add client --path ~/work/.claude-acme   # custom directory
 claude-switcher switch work          # re-point the symlink atomically
 claude-switcher current              # print the active profile (+ email)
+claude-switcher usage                # per-account usage limits (5-hour / 7-day)
 claude-switcher list                 # detailed listing
 claude-switcher list --json          # machine-readable
 claude-switcher rename work client   # renames + moves the dir if at the default path
@@ -142,6 +143,28 @@ fixed when the TUI opens and stays put while you navigate — switching moves th
 ✓ but never reshuffles the rows out from under you. (`claude-switcher list`
 re-sorts on each run.)
 
+## Usage limits
+
+`claude-switcher usage` shows how much of each account's rate limits you've
+consumed, and the TUI displays the same per row (fetched in the background, so
+the UI opens instantly):
+
+```
+* takeyoung (takeyoung@gmail.com)
+      5-hour:   0%   (resets in 3h 36m)
+      7-day :   0%   (resets in 4d)
+  paul-nhost (paul@nhost.io)
+      5-hour:  20%   (resets in 3h 36m)
+      7-day :   4%   (resets in 17h 46m)
+```
+
+This is the **only** feature that touches the network, and it's entirely
+opt-in — `list`, `current`, and switching stay fully offline. It reads each
+account's own OAuth token (macOS Keychain, or `<dir>/.credentials.json` on
+Linux) and queries `https://api.anthropic.com/api/oauth/usage` via `curl`. If a
+token is missing, expired, or you're offline, usage simply shows as
+`unavailable` — nothing breaks. Requires `curl` (standard on macOS/Linux).
+
 ## How it works
 
 - **Symlink is authoritative.** The active profile is always determined by
@@ -155,9 +178,9 @@ re-sorts on each run.)
   Claude writes when a profile is actually used (`.claude.json`, `history.jsonl`,
   `sessions/`, `projects/`) — not from when you selected the profile. Switching
   to a profile without using it does not change its last-used time.
-- **Local detection only.** Email and "authenticated" status are read from the
-  files Claude already writes (`.claude.json`, `.credentials.json`). No API
-  calls, no quota checks, no network.
+- **Offline by default.** Email and "authenticated" status are read from the
+  files Claude already writes (`.claude.json`, `.credentials.json`) — no network.
+  The single exception is the opt-in [usage limits](#usage-limits) feature.
 
 Metadata schema:
 
@@ -199,6 +222,7 @@ Module layout:
 | `profile.rs`        | Runtime profile type + name validation           |
 | `manager.rs`        | Orchestration; keeps symlink ⇄ metadata in sync  |
 | `cli.rs` / `commands.rs` | Non-interactive command surface             |
+| `usage.rs`          | Opt-in usage-limit lookup (token + endpoint)     |
 | `tui/`              | Ratatui UI (`app` state, `ui` render, event loop) |
 
 ## License

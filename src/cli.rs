@@ -70,6 +70,12 @@ pub enum Command {
     },
     /// Print the active profile.
     Current,
+    /// Show per-account usage limits (queries the Anthropic usage endpoint).
+    Usage {
+        /// Emit machine-readable JSON.
+        #[arg(long)]
+        json: bool,
+    },
     /// List all profiles.
     List {
         /// Emit machine-readable JSON.

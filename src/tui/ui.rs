@@ -13,14 +13,14 @@ use ratatui::Frame;
 
 use crate::commands::humanize;
 
-use super::app::{App, InputAction, Mode};
+use super::app::{App, InputAction, Mode, UsageState};
 
 const ACCENT: Color = Color::Cyan;
 
 /// Chrome that surrounds the profile list (borders + title + footer lines).
 pub const CHROME_LINES: u16 = 6;
-/// Each profile occupies this many rows in the list.
-pub const ROWS_PER_PROFILE: u16 = 2;
+/// Each profile occupies this many rows in the list (name, usage, detail).
+pub const ROWS_PER_PROFILE: u16 = 3;
 
 pub fn draw(f: &mut Frame, app: &App) {
     let chunks = Layout::default()
@@ -97,6 +97,7 @@ fn draw_list(f: &mut Frame, area: Rect, app: &App) {
             );
             ListItem::new(vec![
                 Line::from(spans),
+                usage_line(app.usage(&p.name)),
                 Line::from(Span::styled(detail, Style::default().fg(Color::DarkGray))),
             ])
         })
@@ -116,6 +117,52 @@ fn draw_list(f: &mut Frame, area: Rect, app: &App) {
         )
         .highlight_symbol("> ");
     f.render_stateful_widget(list, area, &mut state);
+}
+
+/// The usage line for a profile: a colored 5-hour / 7-day summary, or a
+/// loading / unavailable hint.
+fn usage_line(state: Option<&UsageState>) -> Line<'static> {
+    let dim = Style::default().fg(Color::DarkGray);
+    match state {
+        Some(UsageState::Ready(u)) => {
+            let mut spans = vec![Span::styled("     usage: ", dim)];
+            spans.extend(window_span("5h", u.five_hour.as_ref()));
+            spans.push(Span::styled("  ", dim));
+            spans.extend(window_span("7d", u.seven_day.as_ref()));
+            if let Some(w) = u.seven_day_opus.as_ref().filter(|w| w.utilization > 0.0) {
+                spans.push(Span::styled("  ", dim));
+                spans.extend(window_span("opus", Some(w)));
+            }
+            Line::from(spans)
+        }
+        Some(UsageState::Loading) | None => {
+            Line::from(Span::styled("     usage: …", dim))
+        }
+        Some(UsageState::Unavailable) => {
+            Line::from(Span::styled("     usage: unavailable", dim))
+        }
+    }
+}
+
+fn window_span(label: &str, window: Option<&crate::usage::Window>) -> Vec<Span<'static>> {
+    let dim = Style::default().fg(Color::DarkGray);
+    match window {
+        Some(w) => {
+            let pct = w.utilization.round() as i64;
+            let color = if pct >= 90 {
+                Color::Red
+            } else if pct >= 70 {
+                Color::Yellow
+            } else {
+                Color::Green
+            };
+            vec![
+                Span::styled(format!("{label} "), dim),
+                Span::styled(format!("{pct}%"), Style::default().fg(color)),
+            ]
+        }
+        None => vec![Span::styled(format!("{label} n/a"), dim)],
+    }
 }
 
 /// The footer line adapts to the current mode: keybindings in normal mode, an
