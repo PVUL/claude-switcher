@@ -222,7 +222,7 @@ fn draw_footer(f: &mut Frame, area: Rect, app: &App) {
         Mode::Input { action, buffer } => {
             let label = match action {
                 InputAction::Add => "add".to_string(),
-                InputAction::Rename { from } => format!("rename '{from}'"),
+                InputAction::Rename { from } => format!("edit '{from}'"),
             };
             Line::from(vec![
                 Span::styled(format!(" {label} — name: "), Style::default().fg(ACCENT)),
@@ -245,7 +245,7 @@ fn draw_footer(f: &mut Frame, area: Rect, app: &App) {
                 let keys = if app.header_focused() {
                     " ↑↓ move · enter toggle auto-refresh · r refresh · a add · q quit"
                 } else {
-                    " ↑↓ move · enter switch · r refresh · a add · e rename · d delete · q quit"
+                    " ↑↓ move · enter switch · r refresh · a add · e edit · d delete · q quit"
                 };
                 Line::from(Span::styled(keys, secondary()))
             }

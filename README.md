@@ -133,7 +133,7 @@ Once signed in, `claude-switcher` reads the account email from the profile's
 | `Enter`        | Switch to selected profile — or toggle auto-refresh when the header is focused |
 | `R`            | Manual refresh of usage (also resets the auto-refresh timer) |
 | `A`            | Add a profile                   |
-| `E`            | Rename (edit) the selected profile |
+| `E`            | Edit (rename) the selected profile |
 | `D`            | Delete (unmanage) the profile   |
 | `Q` / `Esc`    | Quit                            |
 
