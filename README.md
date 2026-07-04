@@ -129,14 +129,19 @@ Once signed in, `claude-switcher` reads the account email from the profile's
 
 | Key            | Action                          |
 | -------------- | ------------------------------- |
-| `↑`/`k`, `↓`/`j` | Move selection                |
-| `Enter`        | Switch to selected profile      |
+| `↑`/`k`, `↓`/`j` | Move selection (incl. the header Refresh control) |
+| `Enter`        | Switch to selected profile, or refresh usage when the Refresh control is focused |
 | `A`            | Add a profile                   |
 | `R`            | Rename the selected profile     |
 | `D`            | Delete (unmanage) the profile   |
 | `Q` / `Esc`    | Quit                            |
 
 No mouse required.
+
+The header has a **Refresh** control (with a "last updated" time beside it).
+Select it and press Enter to re-pull usage — debounced to at most once per
+minute. Parking the selector on Refresh also un-highlights every profile row,
+so the list stays easy to read.
 
 The list is ordered active-first, then by most-recent usage. That order is
 fixed when the TUI opens and stays put while you navigate — switching moves the

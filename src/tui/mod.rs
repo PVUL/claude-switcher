@@ -106,7 +106,7 @@ fn handle_normal(app: &mut App, key: KeyEvent) {
         KeyCode::Char('q') | KeyCode::Esc => app.should_quit = true,
         KeyCode::Down | KeyCode::Char('j') => app.select_next(),
         KeyCode::Up | KeyCode::Char('k') => app.select_prev(),
-        KeyCode::Enter => app.switch_selected(),
+        KeyCode::Enter => app.activate(),
         KeyCode::Char('a') | KeyCode::Char('A') => app.begin_add(),
         KeyCode::Char('r') | KeyCode::Char('R') => app.begin_rename(),
         KeyCode::Char('d') | KeyCode::Char('D') => app.begin_delete(),

@@ -8,7 +8,7 @@
 use ratatui::layout::{Constraint, Direction, Layout, Rect};
 use ratatui::style::{Color, Modifier, Style};
 use ratatui::text::{Line, Span};
-use ratatui::widgets::{Block, Borders, List, ListItem, ListState, Paragraph};
+use ratatui::widgets::{Block, Borders, HighlightSpacing, List, ListItem, ListState, Paragraph};
 use ratatui::Frame;
 
 use crate::commands::humanize;
@@ -40,16 +40,20 @@ pub fn draw(f: &mut Frame, app: &App) {
 }
 
 fn draw_title(f: &mut Frame, area: Rect, app: &App) {
-    let active = app
-        .profiles()
-        .iter()
-        .find(|p| p.active)
-        .map(|p| p.name.as_str())
-        .unwrap_or("none");
+    // The Refresh control is a focusable "row": when selected it highlights
+    // here (and no profile row is highlighted, leaving the list easy to read).
+    let refresh_style = if app.refresh_focused() {
+        Style::default().bg(SELECTION_BG).fg(ACCENT).add_modifier(Modifier::BOLD)
+    } else {
+        Style::default().fg(Color::DarkGray)
+    };
+    let marker = if app.refresh_focused() { "› " } else { "  " };
     let line = Line::from(vec![
         Span::styled(" Claude Accounts", Style::default().add_modifier(Modifier::BOLD)),
+        Span::raw("   "),
+        Span::styled(format!("{marker}↻ Refresh "), refresh_style),
         Span::raw("  "),
-        Span::styled(format!("active: {active}"), Style::default().fg(ACCENT)),
+        Span::styled(app.updated_label(), Style::default().fg(Color::DarkGray)),
     ]);
     let p = Paragraph::new(line).block(Block::default().borders(Borders::ALL));
     f.render_widget(p, area);
@@ -104,17 +108,22 @@ fn draw_list(f: &mut Frame, area: Rect, app: &App) {
         })
         .collect();
 
+    // Highlight a profile row only when one is selected; when the header
+    // Refresh control is focused, nothing here is highlighted.
     let mut state = ListState::default();
-    if !app.profiles().is_empty() {
-        state.select(Some(app.selected));
+    if let Some(i) = app.selected_profile_index() {
+        state.select(Some(i));
     }
 
     let list = List::new(items)
         .block(Block::default().borders(Borders::ALL).title(" Profiles "))
-        // Subtle: a muted background bar plus the "> " marker, rather than a
-        // bright reversed block.
-        .highlight_style(Style::default().bg(SELECTION_BG).add_modifier(Modifier::BOLD))
-        .highlight_symbol("> ");
+        // Keep the text fully legible: just a marker + bold, no washed-out
+        // background or reversed colors.
+        .highlight_style(Style::default().add_modifier(Modifier::BOLD))
+        .highlight_symbol("› ")
+        // Reserve the marker column always, so rows don't shift when focus
+        // moves between the header and the list.
+        .highlight_spacing(HighlightSpacing::Always);
     f.render_stateful_widget(list, area, &mut state);
 }
 
@@ -211,7 +220,7 @@ fn draw_footer(f: &mut Frame, area: Rect, app: &App) {
                 Line::from(Span::styled(format!(" {status}"), Style::default().fg(ACCENT)))
             } else {
                 Line::from(Span::styled(
-                    " ↑↓ move · enter switch · a add · r rename · d delete · q quit",
+                    " ↑↓ move · enter switch/refresh · a add · r rename · d delete · q quit",
                     Style::default().fg(Color::DarkGray),
                 ))
             }
