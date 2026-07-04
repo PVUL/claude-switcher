@@ -4,7 +4,7 @@ Switch between multiple isolated **Claude Code** accounts with a single atomic
 symlink — and make every tool (the `claude` CLI, Pi, `pi-claude-bridge`, any
 future wrapper) follow the active account automatically.
 
-```
+```sh
 ┌─────────────────────────────────────────────────────────────────────────┐
 │  Claude Switcher        updated 3:49pm       auto-refresh: on           │
 ├─ Accounts ──────────────────────────────────────────────────────────────┤
@@ -206,7 +206,7 @@ re-sorts on each run.)
 consumed, and the TUI displays the same per row (fetched in the background, so
 the UI opens instantly):
 
-```
+```sh
 * work (you@work.com · Team)
       5-hour  [████░░░░░░░░░░░░░░░░] 22%  resets in 3h 30m  (3:50pm)
       7-day   [█░░░░░░░░░░░░░░░░░░░]  5%  resets in 17h 40m (Sun 6:00am)
