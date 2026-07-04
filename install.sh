@@ -1,5 +1,5 @@
 #!/bin/sh
-# install.sh — build and install claude-switcher + the claude-active wrapper.
+# install.sh — build and install claude-switcher + the claude-switcher-exec wrapper.
 #
 # Usage:
 #   ./install.sh            # install to ~/.local/bin (no sudo)
@@ -23,12 +23,12 @@ echo "==> Building claude-switcher (release)"
 echo "==> Installing to $BIN_DIR"
 mkdir -p "$BIN_DIR"
 install -m 0755 "$REPO_DIR/target/release/claude-switcher" "$BIN_DIR/claude-switcher"
-install -m 0755 "$REPO_DIR/scripts/claude-active" "$BIN_DIR/claude-active"
+install -m 0755 "$REPO_DIR/scripts/claude-switcher-exec" "$BIN_DIR/claude-switcher-exec"
 
 echo
 echo "Installed:"
 echo "  $BIN_DIR/claude-switcher"
-echo "  $BIN_DIR/claude-active"
+echo "  $BIN_DIR/claude-switcher-exec"
 echo
 
 case ":$PATH:" in
@@ -44,12 +44,13 @@ Next steps
 1. Add your accounts (each is a full, isolated Claude config dir):
      claude-switcher add work
      claude-switcher add personal
-   Sign in to each by running `claude-switcher switch <name>` then `claude-active`.
+   Sign in to each by running `claude-switcher switch <name>` then `claude`.
 
-2. Point every consumer at the active profile. Easiest is the alias:
-     alias claude='claude-active'
-   Or export the variable in your shell profile:
-     export CLAUDE_CONFIG_DIR="$HOME/.claude-active"
+2. Point the Claude CLI at the active profile by adding this to your shell
+   profile (this is what makes a plain `claude` follow your switches):
+     export CLAUDE_CONFIG_DIR="$HOME/.claude-switcher"
+   For tools that need an executable path (e.g. pi-claude-bridge), point them
+   at the installed `claude-switcher-exec` instead.
 
 3. Switch anytime:
      claude-switcher            # interactive TUI

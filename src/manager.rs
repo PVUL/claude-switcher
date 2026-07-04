@@ -2,7 +2,7 @@
 //! symlink and metadata in agreement.
 //!
 //! Invariants:
-//!   * The `~/.claude-active` symlink is the source of truth for activation.
+//!   * The `~/.claude-switcher` symlink is the source of truth for activation.
 //!   * `profiles.json` is a cache for the UI and is reconciled on every load.
 //!   * No profile data is ever copied — directories are created in place and
 //!     moves use `rename(2)`.
@@ -193,8 +193,8 @@ impl Manager {
             let file_name = entry.file_name();
             let file_name = file_name.to_string_lossy().into_owned();
             let is_candidate =
-                file_name == ".claude" || file_name.starts_with(".claude-");
-            if !is_candidate || file_name == ".claude-active" {
+                file_name == ".claude" || file_name.starts_with(crate::paths::PROFILE_PREFIX);
+            if !is_candidate || file_name == crate::paths::ACTIVE_LINK {
                 continue;
             }
             let path = entry.path();

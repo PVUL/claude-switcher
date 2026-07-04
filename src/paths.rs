@@ -13,12 +13,19 @@ use std::path::{Path, PathBuf};
 
 use crate::error::{Error, Result};
 
-/// Name of the symlink that every consumer (`claude-active`, Pi, wrappers)
+/// Name of the symlink that every consumer (`claude-switcher-exec`, Pi, wrappers)
 /// points `CLAUDE_CONFIG_DIR` at.
-pub const ACTIVE_LINK: &str = ".claude-active";
+pub const ACTIVE_LINK: &str = ".claude-switcher";
 
 /// Prefix for the per-profile Claude configuration directories.
 pub const PROFILE_PREFIX: &str = ".claude-";
+
+/// The profile name that would collide with the active symlink (the suffix of
+/// [`ACTIVE_LINK`], e.g. `switcher` for `.claude-switcher`) and is therefore
+/// reserved.
+pub fn reserved_name() -> &'static str {
+    ACTIVE_LINK.strip_prefix(PROFILE_PREFIX).unwrap_or("")
+}
 
 /// Resolved locations for the current invocation.
 #[derive(Debug, Clone)]
@@ -50,7 +57,7 @@ impl Paths {
         }
     }
 
-    /// The active-profile symlink, e.g. `~/.claude-active`.
+    /// The active-profile symlink, e.g. `~/.claude-switcher`.
     pub fn active_link(&self) -> PathBuf {
         self.home.join(ACTIVE_LINK)
     }
@@ -113,7 +120,7 @@ mod tests {
     #[test]
     fn derived_locations() {
         let p = paths();
-        assert_eq!(p.active_link(), PathBuf::from("/home/alice/.claude-active"));
+        assert_eq!(p.active_link(), PathBuf::from("/home/alice/.claude-switcher"));
         assert_eq!(p.default_profile_path("work"), PathBuf::from("/home/alice/.claude-work"));
         assert_eq!(
             p.metadata_file(),

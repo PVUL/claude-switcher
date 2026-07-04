@@ -35,7 +35,7 @@ impl Harness {
     }
 
     fn active_link(&self) -> PathBuf {
-        self.home.join(".claude-active")
+        self.home.join(".claude-switcher")
     }
 
     fn link_target(&self) -> Option<PathBuf> {

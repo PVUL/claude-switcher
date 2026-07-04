@@ -30,7 +30,7 @@ pub fn validate_name(name: &str) -> Result<()> {
         && name
             .chars()
             .all(|c| c.is_ascii_alphanumeric() || c == '-' || c == '_')
-        && name != "active"; // would collide with the ~/.claude-active symlink
+        && name != crate::paths::reserved_name(); // would collide with the active symlink
     if valid {
         Ok(())
     } else {
@@ -51,7 +51,7 @@ mod tests {
 
     #[test]
     fn rejects_bad_names() {
-        for name in ["", "has space", "with/slash", "dot.name", "active", &"x".repeat(65)] {
+        for name in ["", "has space", "with/slash", "dot.name", crate::paths::reserved_name(), &"x".repeat(65)] {
             assert!(validate_name(name).is_err(), "{name:?} should be invalid");
         }
     }

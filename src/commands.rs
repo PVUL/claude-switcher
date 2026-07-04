@@ -106,7 +106,7 @@ fn maybe_migrate(mgr: &Manager, name: &str, profile: &Profile, migrate_state: bo
         && !profile.path.join(".claude.json").exists()
     {
         println!("  note: this profile has no login state yet. Re-run with --migrate-state");
-        println!("        to import ~/.claude.json, or sign in via `claude-active`.");
+        println!("        to import ~/.claude.json, or sign in via `claude-switcher-exec`.");
     }
 }
 

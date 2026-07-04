@@ -31,10 +31,10 @@ to choose the active one:
 ~/.claude-work        ← a complete Claude config dir
 ~/.claude-personal    ← another one
 ~/.claude-client      ← another one
-~/.claude-active  ->  ~/.claude-work   (the symlink; the source of truth)
+~/.claude-switcher  ->  ~/.claude-work   (the symlink; the source of truth)
 ```
 
-Point anything at `~/.claude-active` and it uses whichever account is active.
+Point anything at `~/.claude-switcher` and it uses whichever account is active.
 **No files are ever copied.** Switching only re-points the symlink, atomically.
 
 ## Install
@@ -49,23 +49,23 @@ PREFIX=/usr/local ./install.sh  # or a system prefix
 This installs two things:
 
 - `claude-switcher` — the manager (CLI + TUI).
-- `claude-active` — a tiny wrapper that runs Claude under the active profile.
+- `claude-switcher-exec` — a tiny wrapper that runs Claude under the active
+  profile, for tools that take an executable path instead of an environment.
 
 ## Wire up your tools
 
 Pick whichever fits; they all read the same symlink:
 
 ```sh
-# Simplest: alias the CLI in your shell profile
-alias claude='claude-active'
-
-# Or export the variable directly (what `claude-active` does under the hood)
-export CLAUDE_CONFIG_DIR="$HOME/.claude-active"
+# Recommended: export the variable in your shell profile so the plain `claude`
+# command follows the active profile.
+export CLAUDE_CONFIG_DIR="$HOME/.claude-switcher"
 ```
 
-- **Pi wrapper:** launch `claude-active` instead of `claude`.
-- **pi-claude-bridge:** set `pathToClaudeCodeExecutable` to the `claude-active`
-  path.
+- **pi-claude-bridge / tools that want an executable path:** point
+  `pathToClaudeCodeExecutable` at `claude-switcher-exec`.
+- **Pi wrapper:** launch `claude-switcher-exec` instead of `claude` (or rely on
+  the exported variable above).
 
 `claude-switcher env` prints the export line for you.
 
@@ -118,7 +118,7 @@ A freshly added profile is an empty config dir, so it shows as *not signed in*:
 ```sh
 claude-switcher add work
 claude-switcher switch work
-claude-active        # or `claude` if aliased — sign in normally
+claude               # follows the active profile via CLAUDE_CONFIG_DIR
 ```
 
 Once signed in, `claude-switcher` reads the account email from the profile's
@@ -140,7 +140,7 @@ No mouse required.
 ## How it works
 
 - **Symlink is authoritative.** The active profile is always determined by
-  reading `~/.claude-active`. On startup `claude-switcher` reconciles its metadata
+  reading `~/.claude-switcher`. On startup `claude-switcher` reconciles its metadata
   cache with the symlink, so external changes are respected.
 - **Atomic switching.** A new symlink is created at a temp path and `rename(2)`d
   over the old one — an all-or-nothing swap, never a half state.

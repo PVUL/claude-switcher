@@ -1,0 +1,15 @@
+#!/bin/sh
+# claude-switcher-exec — launch Claude Code using whichever profile
+# claude-switcher has activated. The ~/.claude-switcher symlink is maintained by
+# `claude-switcher`; every consumer that runs this wrapper (or exports the same
+# variable) automatically follows the selected profile.
+#
+# Most people don't need this: exporting CLAUDE_CONFIG_DIR in your shell (see
+# `claude-switcher env`) makes the plain `claude` command follow the profile.
+# This wrapper exists for tools that take an *executable path* rather than an
+# environment, e.g. pi-claude-bridge's pathToClaudeCodeExecutable.
+#
+# Usage:
+#   claude-switcher-exec [any claude args...]
+export CLAUDE_CONFIG_DIR="$HOME/.claude-switcher"
+exec claude "$@"
