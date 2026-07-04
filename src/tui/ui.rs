@@ -16,6 +16,8 @@ use crate::commands::humanize;
 use super::app::{App, InputAction, Mode, UsageState};
 
 const ACCENT: Color = Color::Cyan;
+/// Muted dark-gray background for the selected row (256-color index).
+const SELECTION_BG: Color = Color::Indexed(237);
 
 /// Chrome that surrounds the profile list (borders + title + footer lines).
 pub const CHROME_LINES: u16 = 6;
@@ -109,11 +111,9 @@ fn draw_list(f: &mut Frame, area: Rect, app: &App) {
 
     let list = List::new(items)
         .block(Block::default().borders(Borders::ALL).title(" Profiles "))
-        .highlight_style(
-            Style::default()
-                .fg(ACCENT)
-                .add_modifier(Modifier::BOLD | Modifier::REVERSED),
-        )
+        // Subtle: a muted background bar plus the "> " marker, rather than a
+        // bright reversed block.
+        .highlight_style(Style::default().bg(SELECTION_BG).add_modifier(Modifier::BOLD))
         .highlight_symbol("> ");
     f.render_stateful_widget(list, area, &mut state);
 }
