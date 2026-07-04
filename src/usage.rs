@@ -259,12 +259,37 @@ fn call_api(token: &str) -> Option<Usage> {
     if !output.status.success() {
         return None;
     }
-    let raw: RawUsage = serde_json::from_slice(&output.stdout).ok()?;
-    Some(Usage {
+    parse_usage(&output.stdout)
+}
+
+/// Turn a usage-endpoint response body into a `Usage`, or `None` if it isn't a
+/// usage payload.
+///
+/// The endpoint answers HTTP errors (expired/invalid token, rate limiting)
+/// with a `{"type":"error",...}` body and a 200-ish status curl treats as
+/// success. Because every `RawUsage` field is optional, such a body would
+/// otherwise deserialize into an all-`None` `Usage` — a "present but empty"
+/// snapshot that renders as "n/a" and gets cached, hiding the real problem
+/// (a dead token) behind a confusing display for a whole poll interval. So we
+/// reject any error payload, and any body with no recognizable window at all,
+/// and report the profile as unavailable instead.
+fn parse_usage(body: &[u8]) -> Option<Usage> {
+    let value: serde_json::Value = serde_json::from_slice(body).ok()?;
+    if value.get("error").is_some() || value.get("type").and_then(|t| t.as_str()) == Some("error") {
+        return None;
+    }
+    let raw: RawUsage = serde_json::from_value(value).ok()?;
+    let usage = Usage {
         five_hour: raw.five_hour.map(Window::from),
         seven_day: raw.seven_day.map(Window::from),
         seven_day_opus: raw.seven_day_opus.map(Window::from),
-    })
+    };
+    // A body that parsed but carries no window is not a usable usage response
+    // (e.g. an unexpected/empty payload); treat it as unavailable, not empty.
+    if usage.five_hour.is_none() && usage.seven_day.is_none() && usage.seven_day_opus.is_none() {
+        return None;
+    }
+    Some(usage)
 }
 
 impl From<RawWindow> for Window {
@@ -332,5 +357,26 @@ mod tests {
         assert_eq!(flat.expires_at, None);
 
         assert!(parse_creds("not json").is_none());
+    }
+
+    #[test]
+    fn rejects_error_bodies_instead_of_reporting_empty_usage() {
+        // An expired/invalid token yields this shape with a status curl treats
+        // as success. It must be unavailable, not a cacheable all-n/a Usage.
+        let err = br#"{"type":"error","error":{"type":"authentication_error","message":"Invalid bearer token"}}"#;
+        assert!(parse_usage(err).is_none());
+
+        // A body with no recognizable window is likewise unavailable.
+        assert!(parse_usage(b"{}").is_none());
+        assert!(parse_usage(b"not json").is_none());
+    }
+
+    #[test]
+    fn parses_a_real_usage_body() {
+        let body = br#"{"five_hour":{"utilization":13.0,"resets_at":"2026-07-04T16:00:00Z"},"seven_day":{"utilization":11.0,"resets_at":null},"seven_day_opus":null}"#;
+        let u = parse_usage(body).unwrap();
+        assert_eq!(u.five_hour.unwrap().utilization, 13.0);
+        assert_eq!(u.seven_day.unwrap().utilization, 11.0);
+        assert!(u.seven_day_opus.is_none());
     }
 }
