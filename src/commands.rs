@@ -5,6 +5,8 @@ use std::io::Write;
 
 use chrono::{DateTime, Utc};
 
+use std::path::PathBuf;
+
 use crate::cli::Command;
 use crate::error::Result;
 use crate::manager::Manager;
@@ -33,6 +35,13 @@ pub fn run(cmd: Command, mgr: &mut Manager) -> Result<()> {
                 println!("Removed profile '{name}' (directory left on disk).");
             }
         }
+        Command::Adopt {
+            name,
+            path,
+            scan,
+            activate,
+            migrate_state,
+        } => adopt(mgr, name, path, scan, activate, migrate_state)?,
         Command::Rename { old, new } => {
             mgr.rename(&old, &new)?;
             println!("Renamed '{old}' to '{new}'.");
@@ -45,6 +54,68 @@ pub fn run(cmd: Command, mgr: &mut Manager) -> Result<()> {
         Command::Env => print_env(mgr),
     }
     Ok(())
+}
+
+fn adopt(
+    mgr: &mut Manager,
+    name: Option<String>,
+    path: Option<PathBuf>,
+    scan: bool,
+    activate: bool,
+    migrate_state: bool,
+) -> Result<()> {
+    if scan {
+        let candidates = mgr.discover_candidates();
+        if candidates.is_empty() {
+            println!("No un-managed Claude config directories found.");
+            return Ok(());
+        }
+        for (name, path) in candidates {
+            let profile = mgr.adopt(&name, &path, false)?;
+            print!("Adopted '{name}' from {}", profile.raw_path);
+            if profile.active {
+                print!(" (now active)");
+            }
+            println!(".");
+            maybe_migrate(mgr, &name, &profile, migrate_state);
+        }
+        return Ok(());
+    }
+
+    let path = path.unwrap_or_else(|| mgr.paths().home.join(".claude"));
+    let name = name.unwrap_or_else(|| derive_default_name(&path));
+    let profile = mgr.adopt(&name, &path, activate)?;
+    print!("Adopted '{name}' from {}", profile.raw_path);
+    if profile.active {
+        print!(" (now active)");
+    }
+    println!(".");
+    maybe_migrate(mgr, &name, &profile, migrate_state);
+    Ok(())
+}
+
+fn maybe_migrate(mgr: &Manager, name: &str, profile: &Profile, migrate_state: bool) {
+    if migrate_state {
+        match mgr.migrate_home_state(name) {
+            Ok(true) => println!("  imported login state from ~/.claude.json"),
+            Ok(false) => {}
+            Err(e) => eprintln!("  warning: could not import login state: {e}"),
+        }
+    } else if !profile.authenticated
+        && mgr.paths().home.join(".claude.json").is_file()
+        && !profile.path.join(".claude.json").exists()
+    {
+        println!("  note: this profile has no login state yet. Re-run with --migrate-state");
+        println!("        to import ~/.claude.json, or sign in via `claude-active`.");
+    }
+}
+
+fn derive_default_name(path: &std::path::Path) -> String {
+    match path.file_name().and_then(|n| n.to_str()) {
+        Some(".claude") => "default".to_string(),
+        Some(n) => n.trim_start_matches(".claude-").trim_start_matches('.').to_string(),
+        None => "default".to_string(),
+    }
 }
 
 fn list(mgr: &Manager, json: bool) -> Result<()> {

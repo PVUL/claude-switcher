@@ -172,6 +172,57 @@ fn switch_unknown_profile_fails() {
 }
 
 #[test]
+fn adopt_registers_existing_dir_in_place() {
+    let h = Harness::new();
+    // A pre-existing, signed-in config directory.
+    write_account(&h.home.join(".claude-work"), "paul@nhost.io");
+    let out = h.run(&["adopt", "work", "--path", h.home.join(".claude-work").to_str().unwrap()]);
+    assert!(out.status.success(), "{}", String::from_utf8_lossy(&out.stderr));
+    // First adopted profile becomes active and is not copied.
+    assert_eq!(h.link_target().unwrap(), h.home.join(".claude-work"));
+    assert_eq!(stdout(&h.run(&["current"])).trim(), "work (paul@nhost.io)");
+}
+
+#[test]
+fn adopt_default_derives_name_and_migrates_state() {
+    let h = Harness::new();
+    // Mimic the default install: config dir at ~/.claude, state at ~/.claude.json.
+    std::fs::create_dir_all(h.home.join(".claude")).unwrap();
+    std::fs::write(
+        h.home.join(".claude.json"),
+        r#"{"oauthAccount":{"emailAddress":"paul@nhost.io"}}"#,
+    )
+    .unwrap();
+
+    let out = h.run(&["adopt", "--migrate-state"]);
+    assert!(out.status.success(), "{}", String::from_utf8_lossy(&out.stderr));
+    // Name derived from ~/.claude -> "default".
+    assert_eq!(stdout(&h.run(&["current"])).trim(), "default (paul@nhost.io)");
+    // State was copied into the profile dir; original left untouched.
+    assert!(h.home.join(".claude/.claude.json").is_file());
+    assert!(h.home.join(".claude.json").is_file());
+}
+
+#[test]
+fn adopt_scan_finds_all_unmanaged_configs() {
+    let h = Harness::new();
+    write_account(&h.home.join(".claude-work"), "paul@nhost.io");
+    write_account(&h.home.join(".claude-client"), "acme@client.com");
+    std::fs::create_dir_all(h.home.join(".claudebar")).unwrap(); // not a claude config
+
+    let out = h.run(&["adopt", "--scan"]);
+    assert!(out.status.success(), "{}", String::from_utf8_lossy(&out.stderr));
+    let listed = stdout(&h.run(&["list"]));
+    assert!(listed.contains("work"), "{listed}");
+    assert!(listed.contains("client"), "{listed}");
+    assert!(!listed.contains("claudebar"), "{listed}");
+
+    // Re-scanning adopts nothing new.
+    let again = h.run(&["adopt", "--scan"]);
+    assert!(stdout(&again).contains("No un-managed"));
+}
+
+#[test]
 fn symlink_is_source_of_truth_after_external_change() {
     let h = Harness::new();
     h.run(&["add", "work"]);

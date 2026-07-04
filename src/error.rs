@@ -21,6 +21,12 @@ pub enum Error {
     #[error("cannot delete the last remaining profile while it is active")]
     CannotDeleteLastActive,
 
+    #[error("{0} is not an existing directory")]
+    NotAProfileDir(String),
+
+    #[error("{0} is already managed as a profile")]
+    PathAlreadyManaged(String),
+
     #[error(transparent)]
     Io(#[from] std::io::Error),
 

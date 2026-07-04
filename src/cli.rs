@@ -42,6 +42,25 @@ pub enum Command {
         #[arg(long)]
         purge: bool,
     },
+    /// Adopt an existing Claude config directory as a profile (no copying).
+    Adopt {
+        /// Profile name. Defaults to a name derived from the directory
+        /// (e.g. ~/.claude -> "default", ~/.claude-work -> "work").
+        name: Option<String>,
+        /// Directory to adopt. Defaults to ~/.claude (the standard config dir).
+        #[arg(long)]
+        path: Option<PathBuf>,
+        /// Auto-discover and adopt every un-managed ~/.claude[-*] directory.
+        #[arg(long)]
+        scan: bool,
+        /// Make the adopted profile active (single-profile mode only).
+        #[arg(long)]
+        activate: bool,
+        /// Also import login state from ~/.claude.json into the profile dir
+        /// (only needed when adopting the default ~/.claude; copies, never moves).
+        #[arg(long)]
+        migrate_state: bool,
+    },
     /// Rename a profile (moves its directory if at the default location).
     Rename {
         /// Current profile name.

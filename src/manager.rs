@@ -116,6 +116,109 @@ impl Manager {
             .expect("just added"))
     }
 
+    /// Adopt an *existing* Claude configuration directory as a managed profile,
+    /// in place and without copying anything. The first profile adopted (or one
+    /// adopted with `activate`) becomes active.
+    pub fn adopt(&mut self, name: &str, path: &Path, activate: bool) -> Result<Profile> {
+        validate_name(name)?;
+        if self.meta.contains(name) {
+            return Err(Error::DuplicateProfile(name.to_string()));
+        }
+        if !path.is_dir() {
+            return Err(Error::NotAProfileDir(self.paths.contract(path)));
+        }
+        let canon = canonical(path);
+        if self
+            .meta
+            .profiles
+            .iter()
+            .any(|m| canonical(&self.paths.expand(&m.path)) == canon)
+        {
+            return Err(Error::PathAlreadyManaged(self.paths.contract(path)));
+        }
+
+        self.meta.profiles.push(ProfileMeta {
+            name: name.to_string(),
+            path: self.paths.contract(path),
+            last_used: None,
+            email: None,
+        });
+        self.refresh_email(name);
+
+        let first = self.meta.profiles.len() == 1;
+        self.save()?;
+        if activate || first {
+            self.switch(name)?;
+        }
+        Ok(self
+            .profiles()
+            .into_iter()
+            .find(|p| p.name == name)
+            .expect("just adopted"))
+    }
+
+    /// Scan the home directory for un-managed Claude config directories
+    /// (`~/.claude` and `~/.claude-*`, excluding the active symlink). Returns
+    /// suggested `(name, path)` pairs, skipping anything already managed.
+    pub fn discover_candidates(&self) -> Vec<(String, PathBuf)> {
+        let managed: Vec<PathBuf> = self
+            .meta
+            .profiles
+            .iter()
+            .map(|m| canonical(&self.paths.expand(&m.path)))
+            .collect();
+        let taken: Vec<String> = self.meta.profiles.iter().map(|p| p.name.clone()).collect();
+
+        let Ok(entries) = fs::read_dir(&self.paths.home) else {
+            return Vec::new();
+        };
+        let mut out = Vec::new();
+        for entry in entries.flatten() {
+            let file_name = entry.file_name();
+            let file_name = file_name.to_string_lossy().into_owned();
+            let is_candidate =
+                file_name == ".claude" || file_name.starts_with(".claude-");
+            if !is_candidate || file_name == ".claude-active" {
+                continue;
+            }
+            let path = entry.path();
+            // Skip the active symlink and any non-directory.
+            if path.is_symlink() || !path.is_dir() {
+                continue;
+            }
+            if managed.contains(&canonical(&path)) {
+                continue;
+            }
+            let name = derive_name(&file_name);
+            if validate_name(&name).is_err() || taken.contains(&name) {
+                continue;
+            }
+            out.push((name, path));
+        }
+        out.sort_by(|a, b| a.0.cmp(&b.0));
+        out
+    }
+
+    /// Import login/onboarding state for the special case of the default
+    /// `~/.claude` profile, whose `.claude.json` lives at `~/.claude.json`
+    /// rather than inside the directory. Copies (never moves) so the un-wrapped
+    /// `claude` keeps working. Returns whether anything was imported.
+    pub fn migrate_home_state(&self, name: &str) -> Result<bool> {
+        let meta = self
+            .meta
+            .find(name)
+            .ok_or_else(|| Error::UnknownProfile(name.to_string()))?;
+        let dir = self.paths.expand(&meta.path);
+        let inside = dir.join(".claude.json");
+        let home_state = self.paths.home.join(".claude.json");
+        if inside.exists() || !home_state.is_file() {
+            return Ok(false);
+        }
+        let bytes = fs::read(&home_state)?;
+        symlink::atomic_write(&inside, &bytes)?;
+        Ok(true)
+    }
+
     /// Switch the active profile by repointing the symlink atomically.
     pub fn switch(&mut self, name: &str) -> Result<()> {
         let meta = self
@@ -230,4 +333,28 @@ impl Manager {
 /// not exist yet (e.g. a symlink pointing at a not-yet-created directory).
 fn canonical(path: &Path) -> PathBuf {
     fs::canonicalize(path).unwrap_or_else(|_| path.to_path_buf())
+}
+
+/// Suggest a profile name from a config directory's file name:
+/// `.claude` -> `default`, `.claude-work` -> `work`.
+fn derive_name(file_name: &str) -> String {
+    if file_name == ".claude" {
+        "default".to_string()
+    } else if let Some(rest) = file_name.strip_prefix(".claude-") {
+        rest.to_string()
+    } else {
+        file_name.trim_start_matches('.').to_string()
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn derives_names() {
+        assert_eq!(derive_name(".claude"), "default");
+        assert_eq!(derive_name(".claude-work"), "work");
+        assert_eq!(derive_name(".claude-takeyoung"), "takeyoung");
+    }
 }

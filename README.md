@@ -73,6 +73,9 @@ export CLAUDE_CONFIG_DIR="$HOME/.claude-active"
 
 ```sh
 claudesub                      # open the interactive TUI
+claudesub adopt --scan         # auto-import existing ~/.claude[-*] dirs as profiles
+claudesub adopt                # adopt the default ~/.claude (name "default")
+claudesub adopt work --path ~/.claude-work   # adopt one directory in place
 claudesub add work             # create ~/.claude-work (first one becomes active)
 claudesub add client --path ~/work/.claude-acme   # custom directory
 claudesub switch work          # re-point the symlink atomically
@@ -84,6 +87,29 @@ claudesub remove client        # unmanage (directory kept on disk)
 claudesub remove client --purge  # unmanage AND delete the directory
 claudesub env                  # print shell setup
 ```
+
+### Importing your current setup
+
+Already using Claude Code? Adopt your existing config directories as profiles
+instead of starting over. Nothing is copied — `adopt` registers the directory
+in place and the symlink starts pointing at it.
+
+```sh
+claudesub adopt --scan   # finds ~/.claude and every ~/.claude-* directory
+```
+
+The default `~/.claude` is a special case: its login/onboarding state lives in
+`~/.claude.json` (beside the directory, not inside it). To carry that into the
+profile so it works under the wrapper, add `--migrate-state` — this *copies*
+`~/.claude.json` into the profile dir and leaves the original untouched, so a
+bare `claude` keeps working too:
+
+```sh
+claudesub adopt --migrate-state    # adopt ~/.claude and import its login state
+```
+
+Other directories (like `~/.claude-work`) already keep `.claude.json` inside
+them, so no migration is needed.
 
 ### First-time sign-in for a profile
 
