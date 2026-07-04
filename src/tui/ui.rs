@@ -226,10 +226,14 @@ fn draw_footer(f: &mut Frame, area: Rect, app: &App) {
             if let Some(status) = &app.status {
                 Line::from(Span::styled(format!(" {status}"), Style::default().fg(ACCENT)))
             } else {
-                Line::from(Span::styled(
-                    " ↑↓ move · enter switch/refresh · a add · r rename · d delete · q quit",
-                    secondary(),
-                ))
+                // Keys depend on focus: on the header Refresh control you can't
+                // switch/rename/delete a profile, and Enter just refreshes.
+                let keys = if app.refresh_focused() {
+                    " ↑↓ move · enter refresh · a add · q quit"
+                } else {
+                    " ↑↓ move · enter switch · a add · r rename · d delete · q quit"
+                };
+                Line::from(Span::styled(keys, secondary()))
             }
         }
     };
