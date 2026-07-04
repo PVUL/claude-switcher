@@ -11,6 +11,7 @@ use serde::{Deserialize, Serialize};
 
 use crate::error::{Error, Result};
 use crate::symlink;
+use crate::usage::UsageCache;
 
 /// Metadata for a single profile.
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
@@ -50,7 +51,8 @@ impl Default for Settings {
     }
 }
 
-#[derive(Debug, Clone, Default, PartialEq, Eq, Serialize, Deserialize)]
+// Note: no `Eq` — the usage cache carries `f64` utilization values.
+#[derive(Debug, Clone, Default, PartialEq, Serialize, Deserialize)]
 pub struct Metadata {
     /// Cached active-profile name. The symlink remains authoritative.
     #[serde(default, skip_serializing_if = "Option::is_none")]
@@ -59,6 +61,9 @@ pub struct Metadata {
     pub profiles: Vec<ProfileMeta>,
     #[serde(default)]
     pub settings: Settings,
+    /// Last usage snapshot, reused while still within the poll interval.
+    #[serde(default, skip_serializing_if = "Option::is_none", rename = "usageCache")]
+    pub usage_cache: Option<UsageCache>,
 }
 
 impl Metadata {
@@ -126,6 +131,7 @@ mod tests {
                 auto_refresh: true,
                 poll_interval_secs: 300,
             },
+            usage_cache: None,
         };
         meta.save(&path).unwrap();
         let reloaded = Metadata::load(&path).unwrap();

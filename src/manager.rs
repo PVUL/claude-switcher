@@ -49,6 +49,17 @@ impl Manager {
         self.save()
     }
 
+    /// The last persisted usage snapshot, if any.
+    pub fn usage_cache(&self) -> Option<&crate::usage::UsageCache> {
+        self.meta.usage_cache.as_ref()
+    }
+
+    /// Persist a fresh usage snapshot for reuse by later sessions.
+    pub fn save_usage_cache(&mut self, cache: crate::usage::UsageCache) -> Result<()> {
+        self.meta.usage_cache = Some(cache);
+        self.save()
+    }
+
     /// Determine the active profile name by resolving the symlink target and
     /// matching it against known profile paths.
     fn active_name_from_link(paths: &Paths, meta: &Metadata) -> Option<String> {

@@ -6,11 +6,11 @@ use std::path::PathBuf;
 use std::sync::mpsc::{self, Receiver, Sender};
 use std::thread;
 
-use chrono::{DateTime, Local};
+use chrono::{DateTime, Local, Utc};
 
 use crate::manager::Manager;
 use crate::profile::Profile;
-use crate::usage::Usage;
+use crate::usage::{Usage, UsageCache};
 
 /// Per-profile usage-fetch state, updated as background lookups complete.
 #[derive(Debug, Clone)]
@@ -61,6 +61,9 @@ pub struct App<'m> {
     auto_refresh: bool,
     /// Auto-refresh interval, in seconds (from config).
     poll_interval_secs: u64,
+    /// Set when a fetch batch is in progress; drives persisting the snapshot
+    /// once every lookup has resolved.
+    usage_persist_pending: bool,
 }
 
 /// Minimum gap between manual usage refreshes.
@@ -93,12 +96,41 @@ impl<'m> App<'m> {
             last_updated: Local::now(),
             auto_refresh,
             poll_interval_secs,
+            usage_persist_pending: false,
         };
-        let profiles = app.profiles.clone();
-        for p in &profiles {
-            app.begin_usage_fetch(p);
-        }
+        app.seed_usage();
         app
+    }
+
+    /// Reuse the persisted usage snapshot if it's still within the poll window;
+    /// otherwise fetch fresh. When reused, `last_updated` is set to the cached
+    /// fetch time so the next auto-refresh lands exactly at the interval mark
+    /// (e.g. a 9-minute-old snapshot refreshes in 1 minute for a 10-min poll).
+    fn seed_usage(&mut self) {
+        let fresh = self.manager.usage_cache().and_then(|c| {
+            let age = Utc::now().signed_duration_since(c.fetched_at).num_seconds();
+            (age >= 0 && age < self.poll_interval_secs as i64).then(|| c.clone())
+        });
+        match fresh {
+            Some(cache) => {
+                self.last_updated = cache.fetched_at.with_timezone(&Local);
+                let names: Vec<String> = self.profiles.iter().map(|p| p.name.clone()).collect();
+                for name in names {
+                    let state = match cache.profiles.get(&name) {
+                        Some(u) => UsageState::Ready(u.clone()),
+                        None => UsageState::Unavailable,
+                    };
+                    self.usage.insert(name, state);
+                }
+            }
+            None => {
+                let profiles = self.profiles.clone();
+                for p in &profiles {
+                    self.begin_usage_fetch(p);
+                }
+                self.usage_persist_pending = true;
+            }
+        }
     }
 
     /// Kick off a background usage lookup for a profile, if not already tracked.
@@ -129,11 +161,34 @@ impl<'m> App<'m> {
         });
     }
 
-    /// Drain completed usage lookups into state. Call once per UI tick.
+    /// Drain completed usage lookups into state. Call once per UI tick. Once a
+    /// fetch batch fully resolves, persist the snapshot for later sessions.
     pub fn pump_usage(&mut self) {
+        let mut changed = false;
         while let Ok((name, state)) = self.usage_rx.try_recv() {
             self.usage.insert(name, state);
+            changed = true;
         }
+        if changed && self.usage_persist_pending && !self.is_refreshing() {
+            self.persist_usage_cache();
+            self.usage_persist_pending = false;
+        }
+    }
+
+    fn persist_usage_cache(&mut self) {
+        let profiles = self
+            .usage
+            .iter()
+            .filter_map(|(name, st)| match st {
+                UsageState::Ready(u) => Some((name.clone(), u.clone())),
+                _ => None,
+            })
+            .collect();
+        let cache = UsageCache {
+            fetched_at: self.last_updated.with_timezone(&Utc),
+            profiles,
+        };
+        let _ = self.manager.save_usage_cache(cache);
     }
 
     pub fn usage(&self, name: &str) -> Option<&UsageState> {
@@ -268,7 +323,8 @@ impl<'m> App<'m> {
         }
     }
 
-    /// Reset usage to Loading and spawn fresh lookups; resets the poll timer.
+    /// Reset usage to Loading and spawn fresh lookups; resets the poll timer
+    /// and marks the snapshot for re-persisting once complete.
     fn do_refresh(&mut self) {
         self.last_updated = Local::now();
         self.usage.clear();
@@ -276,6 +332,7 @@ impl<'m> App<'m> {
         for p in &profiles {
             self.begin_usage_fetch(p);
         }
+        self.usage_persist_pending = true;
     }
 
     pub fn switch_selected(&mut self) {
@@ -480,6 +537,36 @@ mod tests {
         assert!(mgr.settings().auto_refresh);
         let app = App::new(&mut mgr);
         assert_eq!(app.auto_refresh_label(), "auto-refresh: on");
+    }
+
+    #[test]
+    fn reuses_fresh_usage_cache() {
+        use crate::usage::Window;
+        let dir = tempdir().unwrap();
+        let mut mgr = manager(dir.path());
+        mgr.add("work", None).unwrap();
+        // A snapshot from 2 minutes ago (well within the default 10-min window).
+        let cache = UsageCache {
+            fetched_at: Utc::now() - chrono::Duration::seconds(120),
+            profiles: HashMap::from([(
+                "work".to_string(),
+                Usage {
+                    five_hour: Some(Window { utilization: 42.0, resets_at: None }),
+                    seven_day: None,
+                    seven_day_opus: None,
+                },
+            )]),
+        };
+        mgr.save_usage_cache(cache).unwrap();
+
+        // Opening reuses the cache instead of fetching.
+        let app = App::new(&mut mgr);
+        match app.usage("work") {
+            Some(UsageState::Ready(u)) => {
+                assert_eq!(u.five_hour.as_ref().unwrap().utilization, 42.0)
+            }
+            other => panic!("expected cached Ready, got {other:?}"),
+        }
     }
 
     #[test]

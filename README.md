@@ -145,6 +145,12 @@ polling on/off (remembered across sessions). Press `R` anytime for a manual
 refresh (debounced to once per minute). Parking the selector on the header also
 un-highlights every profile row, so the list stays easy to read.
 
+Usage snapshots are cached to `profiles.json` with their fetch time. When you
+reopen the TUI within the poll interval, the cached values are shown
+immediately with **no API call**, and the next auto-refresh is scheduled to
+land exactly at the interval mark (a 9-minute-old snapshot refreshes in 1
+minute for a 10-minute poll).
+
 Auto-refresh polls every 10 minutes by default; change `pollIntervalSecs` in
 `~/.config/claude-switcher/profiles.json`:
 

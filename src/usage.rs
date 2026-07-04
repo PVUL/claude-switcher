@@ -14,30 +14,45 @@
 //!   * Usage is a GET to `https://api.anthropic.com/api/oauth/usage` with the
 //!     token as a bearer and the `anthropic-beta: oauth-2025-04-20` header.
 
+use std::collections::HashMap;
 use std::path::{Path, PathBuf};
 use std::process::Command;
 
 use chrono::{DateTime, Local, Utc};
-use serde::Deserialize;
+use serde::{Deserialize, Serialize};
 
 const USAGE_URL: &str = "https://api.anthropic.com/api/oauth/usage";
 const OAUTH_BETA: &str = "oauth-2025-04-20";
 const USER_AGENT: &str = "claude-code/2.0.32";
 
 /// A single rate-limit window (e.g. the rolling 5-hour or 7-day limit).
-#[derive(Debug, Clone, PartialEq)]
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
 pub struct Window {
     /// Percent of the limit consumed (0–100).
     pub utilization: f64,
+    #[serde(rename = "resetsAt")]
     pub resets_at: Option<DateTime<Utc>>,
 }
 
 /// Usage limits for an account.
-#[derive(Debug, Clone, PartialEq)]
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
 pub struct Usage {
+    #[serde(rename = "fiveHour", default)]
     pub five_hour: Option<Window>,
+    #[serde(rename = "sevenDay", default)]
     pub seven_day: Option<Window>,
+    #[serde(rename = "sevenDayOpus", default)]
     pub seven_day_opus: Option<Window>,
+}
+
+/// A persisted snapshot of usage for all profiles, with the time it was fetched
+/// so a later session can reuse it while still fresh instead of re-querying.
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
+pub struct UsageCache {
+    #[serde(rename = "fetchedAt")]
+    pub fetched_at: DateTime<Utc>,
+    #[serde(default)]
+    pub profiles: HashMap<String, Usage>,
 }
 
 /// Fetch usage for the profile at `profile_path`. `active_link` should be the
