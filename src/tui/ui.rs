@@ -19,6 +19,13 @@ const ACCENT: Color = Color::Cyan;
 /// Muted dark-gray background for the selected row (256-color index).
 const SELECTION_BG: Color = Color::Indexed(237);
 
+/// Style for secondary text. Dims the terminal's *own* foreground rather than
+/// using a fixed grey, so it stays legible on any background (a fixed grey
+/// clashes with grey terminal themes).
+fn secondary() -> Style {
+    Style::default().add_modifier(Modifier::DIM)
+}
+
 /// Chrome that surrounds the profile list (borders + title + footer lines).
 pub const CHROME_LINES: u16 = 6;
 /// Each profile occupies this many rows (name, 5h bar, 7d bar, last-used).
@@ -45,7 +52,7 @@ fn draw_title(f: &mut Frame, area: Rect, app: &App) {
     let refresh_style = if app.refresh_focused() {
         Style::default().bg(SELECTION_BG).fg(ACCENT).add_modifier(Modifier::BOLD)
     } else {
-        Style::default().fg(Color::DarkGray)
+        secondary()
     };
     let marker = if app.refresh_focused() { "› " } else { "  " };
     let line = Line::from(vec![
@@ -53,7 +60,7 @@ fn draw_title(f: &mut Frame, area: Rect, app: &App) {
         Span::raw("   "),
         Span::styled(format!("{marker}↻ Refresh "), refresh_style),
         Span::raw("  "),
-        Span::styled(app.updated_label(), Style::default().fg(Color::DarkGray)),
+        Span::styled(app.updated_label(), secondary()),
     ]);
     let p = Paragraph::new(line).block(Block::default().borders(Borders::ALL));
     f.render_widget(p, area);
@@ -82,7 +89,7 @@ fn draw_list(f: &mut Frame, area: Rect, app: &App) {
             if let Some(email) = &p.email {
                 spans.push(Span::styled(
                     format!(" ({email})"),
-                    Style::default().fg(Color::DarkGray),
+                    secondary(),
                 ));
             }
             let mut tags = Vec::new();
@@ -103,7 +110,7 @@ fn draw_list(f: &mut Frame, area: Rect, app: &App) {
             );
             let mut lines = vec![Line::from(spans)];
             append_usage_lines(&mut lines, app.usage(&p.name));
-            lines.push(Line::from(Span::styled(detail, Style::default().fg(Color::DarkGray))));
+            lines.push(Line::from(Span::styled(detail, secondary())));
             ListItem::new(lines)
         })
         .collect();
@@ -131,7 +138,7 @@ fn draw_list(f: &mut Frame, area: Rect, app: &App) {
 /// progress bar with its reset time — or loading / unavailable placeholders.
 /// Always adds exactly two lines so every profile has a fixed height.
 fn append_usage_lines(lines: &mut Vec<Line<'static>>, state: Option<&UsageState>) {
-    let dim = Style::default().fg(Color::DarkGray);
+    let dim = secondary();
     match state {
         Some(UsageState::Ready(u)) => {
             lines.push(window_bar_line("5h", u.five_hour.as_ref(), None));
@@ -154,7 +161,7 @@ fn window_bar_line(
     window: Option<&crate::usage::Window>,
     opus: Option<&crate::usage::Window>,
 ) -> Line<'static> {
-    let dim = Style::default().fg(Color::DarkGray);
+    let dim = secondary();
     let Some(w) = window else {
         return Line::from(Span::styled(format!("     {label} n/a"), dim));
     };
@@ -207,13 +214,13 @@ fn draw_footer(f: &mut Frame, area: Rect, app: &App) {
                 Span::styled(format!(" {label} — name: "), Style::default().fg(ACCENT)),
                 Span::styled(buffer.clone(), Style::default().add_modifier(Modifier::BOLD)),
                 Span::styled("▏", Style::default().fg(ACCENT)),
-                Span::styled("  (enter ok · esc cancel)", Style::default().fg(Color::DarkGray)),
+                Span::styled("  (enter ok · esc cancel)", secondary()),
             ])
         }
         Mode::ConfirmDelete { name } => Line::from(vec![
             Span::styled(format!(" remove '{name}'? "), Style::default().fg(Color::Red)),
-            Span::styled("directory kept  ", Style::default().fg(Color::DarkGray)),
-            Span::styled("(y confirm · n cancel)", Style::default().fg(Color::DarkGray)),
+            Span::styled("directory kept  ", secondary()),
+            Span::styled("(y confirm · n cancel)", secondary()),
         ]),
         Mode::Normal => {
             if let Some(status) = &app.status {
@@ -221,7 +228,7 @@ fn draw_footer(f: &mut Frame, area: Rect, app: &App) {
             } else {
                 Line::from(Span::styled(
                     " ↑↓ move · enter switch/refresh · a add · r rename · d delete · q quit",
-                    Style::default().fg(Color::DarkGray),
+                    secondary(),
                 ))
             }
         }
