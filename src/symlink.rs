@@ -55,7 +55,7 @@ fn temp_sibling(target: &Path) -> PathBuf {
     let name = target
         .file_name()
         .map(|n| n.to_string_lossy().into_owned())
-        .unwrap_or_else(|| "claudesub".into());
+        .unwrap_or_else(|| "claude-switcher".into());
     let tmp_name = format!(".{name}.tmp.{pid}");
     match target.parent() {
         Some(parent) => parent.join(tmp_name),

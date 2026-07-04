@@ -1,6 +1,6 @@
 #!/bin/sh
-# claude-active — launch Claude Code using whichever profile claudesub has
-# activated. The ~/.claude-active symlink is maintained by `claudesub`; every
+# claude-active — launch Claude Code using whichever profile claude-switcher has
+# activated. The ~/.claude-active symlink is maintained by `claude-switcher`; every
 # consumer that runs this wrapper (or exports the same variable) automatically
 # follows the selected profile.
 #

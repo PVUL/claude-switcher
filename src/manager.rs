@@ -157,6 +157,22 @@ impl Manager {
             .expect("just adopted"))
     }
 
+    /// First-run convenience: if nothing is managed yet, adopt every Claude
+    /// config directory we can discover so the tool immediately reflects the
+    /// account(s) you're already signed in to. Returns the names adopted.
+    pub fn bootstrap_if_empty(&mut self) -> Result<Vec<String>> {
+        if !self.meta.profiles.is_empty() {
+            return Ok(Vec::new());
+        }
+        let mut adopted = Vec::new();
+        for (name, path) in self.discover_candidates() {
+            if self.adopt(&name, &path, false).is_ok() {
+                adopted.push(name);
+            }
+        }
+        Ok(adopted)
+    }
+
     /// Scan the home directory for un-managed Claude config directories
     /// (`~/.claude` and `~/.claude-*`, excluding the active symlink). Returns
     /// suggested `(name, path)` pairs, skipping anything already managed.

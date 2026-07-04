@@ -127,7 +127,7 @@ fn list(mgr: &Manager, json: bool) -> Result<()> {
         return Ok(());
     }
     if profiles.is_empty() {
-        println!("No profiles yet. Add one with:  claudesub add <name>");
+        println!("No profiles yet. Add one with:  claude-switcher add <name>");
         return Ok(());
     }
     for p in &profiles {
@@ -154,7 +154,7 @@ fn describe(p: &Profile) -> String {
 
 fn print_env(mgr: &Manager) {
     let link = mgr.paths().active_link();
-    println!("# Add this to your shell profile so every tool follows claudesub:");
+    println!("# Add this to your shell profile so every tool follows claude-switcher:");
     println!("export CLAUDE_CONFIG_DIR=\"$HOME/{ACTIVE_LINK}\"");
     let _ = link; // link already reflected via ACTIVE_LINK relative to $HOME
 }

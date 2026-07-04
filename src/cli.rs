@@ -6,10 +6,10 @@ use clap::{Parser, Subcommand};
 
 #[derive(Parser, Debug)]
 #[command(
-    name = "claudesub",
+    name = "claude-switcher",
     version,
     about = "Switch between multiple isolated Claude Code accounts.",
-    long_about = "claudesub manages several Claude Code configuration directories and \
+    long_about = "claude-switcher manages several Claude Code configuration directories and \
 selects one with an atomic symlink at ~/.claude-active. Point CLAUDE_CONFIG_DIR (or the \
 bundled `claude-active` wrapper) at that symlink and every tool follows the active profile.\n\n\
 Run with no arguments to open the interactive TUI."

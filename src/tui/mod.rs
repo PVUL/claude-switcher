@@ -21,7 +21,7 @@ use app::{App, Mode};
 /// Entry point from `main` when no subcommand is given.
 pub fn run(manager: &mut Manager) -> Result<()> {
     if manager.profiles().is_empty() {
-        eprintln!("No profiles yet. Add one with:  claudesub add <name>");
+        eprintln!("No profiles yet. Add one with:  claude-switcher add <name>");
         return Ok(());
     }
 

@@ -1,4 +1,4 @@
-# claudesub
+# claude-switcher
 
 Switch between multiple isolated **Claude Code** accounts with a single atomic
 symlink — and make every tool (the `claude` CLI, Pi, `pi-claude-bridge`, any
@@ -24,7 +24,7 @@ future wrapper) follow the active account automatically.
 
 Claude Code isolates *everything* — credentials, settings, history, plugins,
 skills — inside the directory named by the `CLAUDE_CONFIG_DIR` environment
-variable. `claudesub` keeps one directory per account and flips a single symlink
+variable. `claude-switcher` keeps one directory per account and flips a single symlink
 to choose the active one:
 
 ```
@@ -48,7 +48,7 @@ PREFIX=/usr/local ./install.sh  # or a system prefix
 
 This installs two things:
 
-- `claudesub` — the manager (CLI + TUI).
+- `claude-switcher` — the manager (CLI + TUI).
 - `claude-active` — a tiny wrapper that runs Claude under the active profile.
 
 ## Wire up your tools
@@ -67,25 +67,25 @@ export CLAUDE_CONFIG_DIR="$HOME/.claude-active"
 - **pi-claude-bridge:** set `pathToClaudeCodeExecutable` to the `claude-active`
   path.
 
-`claudesub env` prints the export line for you.
+`claude-switcher env` prints the export line for you.
 
 ## Usage
 
 ```sh
-claudesub                      # open the interactive TUI
-claudesub adopt --scan         # auto-import existing ~/.claude[-*] dirs as profiles
-claudesub adopt                # adopt the default ~/.claude (name "default")
-claudesub adopt work --path ~/.claude-work   # adopt one directory in place
-claudesub add work             # create ~/.claude-work (first one becomes active)
-claudesub add client --path ~/work/.claude-acme   # custom directory
-claudesub switch work          # re-point the symlink atomically
-claudesub current              # print the active profile (+ email)
-claudesub list                 # detailed listing
-claudesub list --json          # machine-readable
-claudesub rename work client   # renames + moves the dir if at the default path
-claudesub remove client        # unmanage (directory kept on disk)
-claudesub remove client --purge  # unmanage AND delete the directory
-claudesub env                  # print shell setup
+claude-switcher                      # open the interactive TUI
+claude-switcher adopt --scan         # auto-import existing ~/.claude[-*] dirs as profiles
+claude-switcher adopt                # adopt the default ~/.claude (name "default")
+claude-switcher adopt work --path ~/.claude-work   # adopt one directory in place
+claude-switcher add work             # create ~/.claude-work (first one becomes active)
+claude-switcher add client --path ~/work/.claude-acme   # custom directory
+claude-switcher switch work          # re-point the symlink atomically
+claude-switcher current              # print the active profile (+ email)
+claude-switcher list                 # detailed listing
+claude-switcher list --json          # machine-readable
+claude-switcher rename work client   # renames + moves the dir if at the default path
+claude-switcher remove client        # unmanage (directory kept on disk)
+claude-switcher remove client --purge  # unmanage AND delete the directory
+claude-switcher env                  # print shell setup
 ```
 
 ### Importing your current setup
@@ -95,7 +95,7 @@ instead of starting over. Nothing is copied — `adopt` registers the directory
 in place and the symlink starts pointing at it.
 
 ```sh
-claudesub adopt --scan   # finds ~/.claude and every ~/.claude-* directory
+claude-switcher adopt --scan   # finds ~/.claude and every ~/.claude-* directory
 ```
 
 The default `~/.claude` is a special case: its login/onboarding state lives in
@@ -105,7 +105,7 @@ profile so it works under the wrapper, add `--migrate-state` — this *copies*
 bare `claude` keeps working too:
 
 ```sh
-claudesub adopt --migrate-state    # adopt ~/.claude and import its login state
+claude-switcher adopt --migrate-state    # adopt ~/.claude and import its login state
 ```
 
 Other directories (like `~/.claude-work`) already keep `.claude.json` inside
@@ -116,12 +116,12 @@ them, so no migration is needed.
 A freshly added profile is an empty config dir, so it shows as *not signed in*:
 
 ```sh
-claudesub add work
-claudesub switch work
+claude-switcher add work
+claude-switcher switch work
 claude-active        # or `claude` if aliased — sign in normally
 ```
 
-Once signed in, `claudesub` reads the account email from the profile's
+Once signed in, `claude-switcher` reads the account email from the profile's
 `.claude.json` and shows it in parentheses.
 
 ### TUI keys
@@ -140,11 +140,11 @@ No mouse required.
 ## How it works
 
 - **Symlink is authoritative.** The active profile is always determined by
-  reading `~/.claude-active`. On startup `claudesub` reconciles its metadata
+  reading `~/.claude-active`. On startup `claude-switcher` reconciles its metadata
   cache with the symlink, so external changes are respected.
 - **Atomic switching.** A new symlink is created at a temp path and `rename(2)`d
   over the old one — an all-or-nothing swap, never a half state.
-- **Metadata is UI-only.** `~/.config/claudesub/profiles.json` stores display
+- **Metadata is UI-only.** `~/.config/claude-switcher/profiles.json` stores display
   order, last-used times and cached emails. It never decides what's active.
 - **Local detection only.** Email and "authenticated" status are read from the
   files Claude already writes (`.claude.json`, `.credentials.json`). No API
@@ -168,9 +168,9 @@ Metadata schema:
 
 Override locations (handy for testing or non-standard setups):
 
-- `CLAUDESUB_HOME` — where profile dirs and the symlink live (default `$HOME`).
-- `CLAUDESUB_CONFIG_DIR` — where `profiles.json` lives (default
-  `~/.config/claudesub`).
+- `CLAUDE_SWITCHER_HOME` — where profile dirs and the symlink live (default `$HOME`).
+- `CLAUDE_SWITCHER_CONFIG_DIR` — where `profiles.json` lives (default
+  `~/.config/claude-switcher`).
 
 ## Development
 

@@ -1,4 +1,4 @@
-//! End-to-end tests that run the compiled `claudesub` binary against an
+//! End-to-end tests that run the compiled `claude-switcher` binary against an
 //! isolated fake `$HOME`, exercising the real symlink + metadata behaviour.
 
 use std::path::{Path, PathBuf};
@@ -26,12 +26,12 @@ impl Harness {
     }
 
     fn run(&self, args: &[&str]) -> Output {
-        Command::new(env!("CARGO_BIN_EXE_claudesub"))
+        Command::new(env!("CARGO_BIN_EXE_claude-switcher"))
             .args(args)
-            .env("CLAUDESUB_HOME", &self.home)
-            .env("CLAUDESUB_CONFIG_DIR", &self.config)
+            .env("CLAUDE_SWITCHER_HOME", &self.home)
+            .env("CLAUDE_SWITCHER_CONFIG_DIR", &self.config)
             .output()
-            .expect("failed to run claudesub")
+            .expect("failed to run claude-switcher")
     }
 
     fn active_link(&self) -> PathBuf {
@@ -223,6 +223,24 @@ fn adopt_scan_finds_all_unmanaged_configs() {
 }
 
 #[test]
+fn bootstrap_shows_current_account_on_first_run() {
+    let h = Harness::new();
+    // Existing default config the user is already signed in to, nothing managed.
+    std::fs::create_dir_all(h.home.join(".claude")).unwrap();
+    std::fs::write(
+        h.home.join(".claude.json"),
+        r#"{"oauthAccount":{"emailAddress":"paul@nhost.io"}}"#,
+    )
+    .unwrap();
+
+    // `current` (a read command) auto-imports on first use.
+    let out = h.run(&["current"]);
+    assert!(out.status.success(), "{}", String::from_utf8_lossy(&out.stderr));
+    assert_eq!(stdout(&out).trim(), "default (paul@nhost.io)");
+    assert_eq!(h.link_target().unwrap(), h.home.join(".claude"));
+}
+
+#[test]
 fn symlink_is_source_of_truth_after_external_change() {
     let h = Harness::new();
     h.run(&["add", "work"]);
@@ -231,6 +249,6 @@ fn symlink_is_source_of_truth_after_external_change() {
     let link = h.active_link();
     std::fs::remove_file(&link).unwrap();
     std::os::unix::fs::symlink(h.home.join(".claude-personal"), &link).unwrap();
-    // claudesub should report the profile the symlink points at, not its cache.
+    // claude-switcher should report the profile the symlink points at, not its cache.
     assert_eq!(stdout(&h.run(&["current"])).trim(), "personal");
 }

@@ -1,4 +1,4 @@
-//! Filesystem locations used by claudesub.
+//! Filesystem locations used by claude-switcher.
 //!
 //! Everything is derived from two roots:
 //!   * `home`       — where the profile directories and the active symlink live.
@@ -6,8 +6,8 @@
 //!
 //! Both can be overridden with environment variables, which keeps the whole
 //! program testable without touching the real `$HOME`:
-//!   * `CLAUDESUB_HOME`       overrides the home root.
-//!   * `CLAUDESUB_CONFIG_DIR` overrides the config directory.
+//!   * `CLAUDE_SWITCHER_HOME`       overrides the home root.
+//!   * `CLAUDE_SWITCHER_CONFIG_DIR` overrides the config directory.
 
 use std::path::{Path, PathBuf};
 
@@ -30,13 +30,13 @@ pub struct Paths {
 impl Paths {
     /// Discover paths from the environment (or the overrides above).
     pub fn discover() -> Result<Self> {
-        let home = match std::env::var_os("CLAUDESUB_HOME") {
+        let home = match std::env::var_os("CLAUDE_SWITCHER_HOME") {
             Some(h) => PathBuf::from(h),
             None => dirs::home_dir().ok_or(Error::NoHomeDir)?,
         };
-        let config_dir = match std::env::var_os("CLAUDESUB_CONFIG_DIR") {
+        let config_dir = match std::env::var_os("CLAUDE_SWITCHER_CONFIG_DIR") {
             Some(c) => PathBuf::from(c),
-            None => home.join(".config").join("claudesub"),
+            None => home.join(".config").join("claude-switcher"),
         };
         Ok(Self { home, config_dir })
     }
@@ -91,7 +91,7 @@ mod tests {
     use super::*;
 
     fn paths() -> Paths {
-        Paths::with_roots("/home/alice", "/home/alice/.config/claudesub")
+        Paths::with_roots("/home/alice", "/home/alice/.config/claude-switcher")
     }
 
     #[test]
@@ -117,7 +117,7 @@ mod tests {
         assert_eq!(p.default_profile_path("work"), PathBuf::from("/home/alice/.claude-work"));
         assert_eq!(
             p.metadata_file(),
-            PathBuf::from("/home/alice/.config/claudesub/profiles.json")
+            PathBuf::from("/home/alice/.config/claude-switcher/profiles.json")
         );
     }
 }

@@ -157,7 +157,7 @@ fn draw_confirm_popup(f: &mut Frame, name: &str) {
     f.render_widget(Clear, area);
     let text = vec![
         Line::from(Span::raw("")),
-        Line::from(Span::raw(format!("  Remove profile '{name}' from claudesub?"))),
+        Line::from(Span::raw(format!("  Remove profile '{name}' from claude-switcher?"))),
         Line::from(Span::styled(
             "  (the directory on disk is kept)",
             Style::default().fg(Color::DarkGray),
