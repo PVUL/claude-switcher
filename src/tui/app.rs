@@ -307,8 +307,10 @@ impl<'m> App<'m> {
             ));
             return;
         }
+        // The header shows "updating…" → "updated <time>", so no sticky footer
+        // message is needed (and a sticky one would linger after completion).
+        self.status = None;
         self.do_refresh();
-        self.status = Some("Refreshing usage…".to_string());
     }
 
     /// Called each UI tick: re-fetch when auto-refresh is on and the interval
