@@ -48,9 +48,8 @@ pub fn draw(f: &mut Frame, app: &App) {
 
 fn draw_title(f: &mut Frame, area: Rect, app: &App) {
     // Single left-aligned line: title, last-updated time, then the auto-refresh
-    // toggle just after it (a focusable "row" — Enter toggles it). The ↻ icon is
-    // a visual cue. When focused it highlights here and no profile row is, so
-    // the list stays easy to read.
+    // toggle just after it (a focusable "row" — Enter toggles it). When focused
+    // it highlights here and no profile row is, so the list stays easy to read.
     let toggle_style = if app.header_focused() {
         Style::default().bg(SELECTION_BG).fg(ACCENT).add_modifier(Modifier::BOLD)
     } else {
@@ -62,7 +61,7 @@ fn draw_title(f: &mut Frame, area: Rect, app: &App) {
         Span::raw("   "),
         Span::styled(app.updated_label(), secondary()),
         Span::raw("    "),
-        Span::styled(format!("{marker}↻ {}", app.auto_refresh_label()), toggle_style),
+        Span::styled(format!("{marker}{}", app.auto_refresh_label()), toggle_style),
     ]);
     let p = Paragraph::new(line).block(Block::default().borders(Borders::ALL));
     f.render_widget(p, area);
