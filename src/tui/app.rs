@@ -59,6 +59,11 @@ pub struct App<'m> {
     last_updated: DateTime<Local>,
     /// Whether usage is polled on a timer (persisted).
     auto_refresh: bool,
+    /// Whether the compact, one-line-per-profile view is active (persisted).
+    compact: bool,
+    /// Set when the view mode changes, so the event loop can rebuild the inline
+    /// viewport at the new per-profile height (its height is fixed at creation).
+    view_dirty: bool,
     /// Auto-refresh interval, in seconds (from config).
     poll_interval_secs: u64,
     /// Set when a fetch batch is in progress; drives persisting the snapshot
@@ -89,6 +94,7 @@ impl<'m> App<'m> {
         let home = manager.paths().home.clone();
         let active_link = manager.paths().active_link();
         let auto_refresh = manager.settings().auto_refresh;
+        let compact = manager.settings().compact;
         let poll_interval_secs = manager.settings().poll_interval_secs;
         // Start on the active profile's row (profile `i` is at row `i + 1`) so
         // the cursor lands on the account in use; fall back to the Refresh
@@ -113,6 +119,8 @@ impl<'m> App<'m> {
             usage_rx,
             last_updated: Local::now(),
             auto_refresh,
+            compact,
+            view_dirty: false,
             poll_interval_secs,
             usage_persist_pending: false,
         };
@@ -245,6 +253,24 @@ impl<'m> App<'m> {
     /// Header toggle label, e.g. "auto-refresh: on".
     pub fn auto_refresh_label(&self) -> String {
         format!("auto-refresh: {}", if self.auto_refresh { "on" } else { "off" })
+    }
+
+    /// Whether the compact, one-line-per-profile view is active.
+    pub fn compact(&self) -> bool {
+        self.compact
+    }
+
+    /// Toggle and persist the compact view, flagging the viewport for a rebuild
+    /// at the new per-profile height.
+    pub fn toggle_compact(&mut self) {
+        self.compact = !self.compact;
+        let _ = self.manager.set_compact(self.compact);
+        self.view_dirty = true;
+    }
+
+    /// Consume the pending view-rebuild flag (set when the view mode toggles).
+    pub fn take_view_dirty(&mut self) -> bool {
+        std::mem::take(&mut self.view_dirty)
     }
 
     pub fn profiles(&self) -> &[Profile] {
@@ -659,6 +685,26 @@ mod tests {
         assert!(mgr.settings().auto_refresh);
         let app = App::new(&mut mgr);
         assert_eq!(app.auto_refresh_label(), "auto-refresh: on");
+    }
+
+    #[test]
+    fn toggle_compact_persists_and_flags_a_rebuild() {
+        let dir = tempdir().unwrap();
+        {
+            let mut mgr = manager(dir.path());
+            let mut app = App::new(&mut mgr);
+            assert!(!app.compact(), "defaults to the full view");
+
+            app.toggle_compact();
+            assert!(app.compact());
+            // Toggling asks the event loop to rebuild the (fixed-height) viewport.
+            assert!(app.take_view_dirty());
+            assert!(!app.take_view_dirty(), "the flag is consumed once");
+        }
+        // Persisted across a reload.
+        let mut mgr = manager(dir.path());
+        assert!(mgr.settings().compact);
+        assert!(App::new(&mut mgr).compact());
     }
 
     #[test]

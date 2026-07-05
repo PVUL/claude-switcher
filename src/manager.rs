@@ -49,6 +49,12 @@ impl Manager {
         self.save()
     }
 
+    /// Persist the compact (minimal) view preference.
+    pub fn set_compact(&mut self, on: bool) -> Result<()> {
+        self.meta.settings.compact = on;
+        self.save()
+    }
+
     /// The last persisted usage snapshot, if any.
     pub fn usage_cache(&self) -> Option<&crate::usage::UsageCache> {
         self.meta.usage_cache.as_ref()

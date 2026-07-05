@@ -172,6 +172,7 @@ Once signed in, `claude-switcher` reads the account email from the profile's
 | `A`              | Add a profile                                                |
 | `E`              | Edit (rename) the selected profile                           |
 | `D`              | Delete (unmanage) the profile                                |
+| `M`              | Toggle the compact (minimal) one-line-per-profile view       |
 | `Q` / `Esc`      | Quit                                                         |
 
 No mouse required.
@@ -181,6 +182,16 @@ toggle on the right. Move up to the toggle and press Enter to turn periodic
 polling on/off (remembered across sessions). Press `R` anytime for a manual
 refresh (debounced to once per minute). Parking the selector on the header also
 un-highlights every profile row, so the list stays easy to read.
+
+Press `M` for a **minimal view** that collapses each profile to a single line —
+the alias, its 5-hour bar, and when that window resets — for a quick glance
+without scrolling. The preference is remembered across sessions.
+
+```sh
+› ✓ work      ██████░░░░░░░░░░  22%  resets in 3h 30m  (3:50pm)
+    personal  ░░░░░░░░░░░░░░░░   0%  resets in 4h 12m  (7:01pm)
+    client    usage unavailable
+```
 
 Usage snapshots are cached to `profiles.json` with their fetch time. When you
 reopen the TUI within the poll interval, the cached values are shown
@@ -192,7 +203,7 @@ Auto-refresh polls every 5 minutes by default; change `pollIntervalSecs` in
 `~/.config/claude-switcher/profiles.json`:
 
 ```json
-"settings": { "autoRefresh": true, "pollIntervalSecs": 300 }
+"settings": { "autoRefresh": true, "pollIntervalSecs": 300, "compactView": false }
 ```
 
 The list is ordered active-first, then by most-recent usage. That order is
@@ -256,7 +267,7 @@ Metadata schema:
       "email": "you@work.com"
     }
   ],
-  "settings": { "autoRefresh": true, "pollIntervalSecs": 300 }
+  "settings": { "autoRefresh": true, "pollIntervalSecs": 300, "compactView": false }
 }
 ```
 

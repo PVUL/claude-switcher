@@ -14,7 +14,7 @@ use crate::error::Result;
 use crate::manager::Manager;
 
 use app::{App, Mode};
-use ui::{CHROME_LINES, ROWS_PER_PROFILE};
+use ui::{CHROME_LINES, COMPACT_ROWS_PER_PROFILE, ROWS_PER_PROFILE};
 
 /// Entry point from `main` when no subcommand is given.
 pub fn run(manager: &mut Manager) -> Result<()> {
@@ -23,19 +23,29 @@ pub fn run(manager: &mut Manager) -> Result<()> {
         return Ok(());
     }
 
-    let height = viewport_height(manager.profiles().len());
-    let mut terminal = setup_terminal(height)?;
-    let app = App::new(manager);
-    let result = event_loop(&mut terminal, app);
-    restore_terminal(&mut terminal)?;
-    result
+    let mut app = App::new(manager);
+    // The inline viewport's height is fixed at creation, so toggling the view
+    // mode (which changes the per-profile height) rebuilds the terminal at the
+    // new size while `app` — selection, usage, timers — lives across rebuilds.
+    loop {
+        let height = viewport_height(app.profiles().len(), app.compact());
+        let mut terminal = setup_terminal(height)?;
+        let result = event_loop(&mut terminal, &mut app);
+        restore_terminal(&mut terminal)?;
+        result?;
+        if app.should_quit {
+            break;
+        }
+    }
+    Ok(())
 }
 
 /// Size the inline viewport to the content, capped so it never dominates the
 /// terminal. The list scrolls if there are more profiles than fit.
-fn viewport_height(profiles: usize) -> u16 {
-    let content = CHROME_LINES + ROWS_PER_PROFILE * profiles.max(1) as u16;
-    content.clamp(CHROME_LINES + ROWS_PER_PROFILE, 28)
+fn viewport_height(profiles: usize, compact: bool) -> u16 {
+    let per = if compact { COMPACT_ROWS_PER_PROFILE } else { ROWS_PER_PROFILE };
+    let content = CHROME_LINES + per * profiles.max(1) as u16;
+    content.clamp(CHROME_LINES + per, 28)
 }
 
 fn setup_terminal(height: u16) -> Result<Terminal<CrosstermBackend<Stdout>>> {
@@ -58,14 +68,17 @@ fn restore_terminal(terminal: &mut Terminal<CrosstermBackend<Stdout>>) -> Result
     Ok(())
 }
 
+/// Run the input loop against the current viewport. Returns when the user quits
+/// or toggles the view mode; the caller rebuilds the viewport in the latter
+/// case (signaled via `App::take_view_dirty`).
 fn event_loop(
     terminal: &mut Terminal<CrosstermBackend<Stdout>>,
-    mut app: App,
+    app: &mut App,
 ) -> Result<()> {
     loop {
         app.pump_usage();
         app.tick_auto_refresh();
-        terminal.draw(|f| ui::draw(f, &app))?;
+        terminal.draw(|f| ui::draw(f, app))?;
 
         // Poll so the UI keeps refreshing as background usage lookups land,
         // rather than blocking indefinitely on a keypress.
@@ -78,8 +91,10 @@ fn event_loop(
         if key.kind != KeyEventKind::Press {
             continue;
         }
-        handle_key(&mut app, key);
-        if app.should_quit {
+        handle_key(app, key);
+        // A view toggle needs a differently sized viewport; hand back so the
+        // caller can rebuild it.
+        if app.should_quit || app.take_view_dirty() {
             break;
         }
     }
@@ -110,6 +125,7 @@ fn handle_normal(app: &mut App, key: KeyEvent) {
         KeyCode::Enter => app.activate(),
         KeyCode::Char('a') | KeyCode::Char('A') => app.begin_add(),
         KeyCode::Char('r') | KeyCode::Char('R') => app.manual_refresh(),
+        KeyCode::Char('m') | KeyCode::Char('M') => app.toggle_compact(),
         KeyCode::Char('e') | KeyCode::Char('E') => app.begin_rename(),
         KeyCode::Char('d') | KeyCode::Char('D') => app.begin_delete(),
         _ => {}

@@ -36,6 +36,9 @@ pub struct Settings {
     /// Auto-refresh interval in seconds (default 5 minutes).
     #[serde(default = "default_poll_interval", rename = "pollIntervalSecs")]
     pub poll_interval_secs: u64,
+    /// Whether the TUI renders the compact, one-line-per-profile view.
+    #[serde(default, rename = "compactView")]
+    pub compact: bool,
 }
 
 fn default_poll_interval() -> u64 {
@@ -47,6 +50,7 @@ impl Default for Settings {
         Settings {
             auto_refresh: false,
             poll_interval_secs: default_poll_interval(),
+            compact: false,
         }
     }
 }
@@ -130,6 +134,7 @@ mod tests {
             settings: Settings {
                 auto_refresh: true,
                 poll_interval_secs: 300,
+                compact: false,
             },
             usage_cache: None,
         };

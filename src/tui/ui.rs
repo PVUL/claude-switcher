@@ -12,6 +12,7 @@ use ratatui::widgets::{Block, Borders, HighlightSpacing, List, ListItem, ListSta
 use ratatui::Frame;
 
 use crate::commands::humanize;
+use crate::profile::Profile;
 
 use super::app::{App, InputAction, Mode, UsageState};
 
@@ -30,6 +31,9 @@ fn secondary() -> Style {
 pub const CHROME_LINES: u16 = 6;
 /// Each profile occupies this many rows (name, 5h bar, 7d bar, last-used).
 pub const ROWS_PER_PROFILE: u16 = 4;
+/// In the compact (minimal) view each profile is a single line: alias, 5-hour
+/// bar, and reset time.
+pub const COMPACT_ROWS_PER_PROFILE: u16 = 1;
 /// The widest the UI is ever rendered. On a wide terminal the bordered frame is
 /// clamped to this (and left-aligned) so it doesn't stretch out unattractively;
 /// it's sized to hold the longest line (a usage bar plus its reset phrase).
@@ -81,50 +85,19 @@ fn draw_title(f: &mut Frame, area: Rect, app: &App) {
 }
 
 fn draw_list(f: &mut Frame, area: Rect, app: &App) {
-    let items: Vec<ListItem> = app
-        .profiles()
-        .iter()
-        .map(|p| {
-            let check = if p.active { "✓ " } else { "  " };
-            let mut spans = vec![
-                Span::styled(
-                    check,
-                    Style::default().fg(if p.active { Color::Green } else { Color::DarkGray }),
-                ),
-                Span::styled(
-                    p.name.clone(),
-                    Style::default().add_modifier(if p.active {
-                        Modifier::BOLD
-                    } else {
-                        Modifier::empty()
-                    }),
-                ),
-            ];
-            if let Some(id) = p.identity() {
-                spans.push(Span::styled(format!(" ({id})"), secondary()));
-            }
-            let mut tags = Vec::new();
-            if !p.exists {
-                tags.push("MISSING DIR");
-            }
-            if !p.authenticated {
-                tags.push("not signed in");
-            }
-            let detail = format!(
-                "     last used: {}{}",
-                humanize(p.last_used),
-                if tags.is_empty() {
-                    String::new()
-                } else {
-                    format!("   [{}]", tags.join(", "))
-                }
-            );
-            let mut lines = vec![Line::from(spans)];
-            append_usage_lines(&mut lines, app.usage(&p.name));
-            lines.push(Line::from(Span::styled(detail, secondary())));
-            ListItem::new(lines)
-        })
-        .collect();
+    let items: Vec<ListItem> = if app.compact() {
+        // Pad names to the widest so the bars line up across rows.
+        let name_width = app.profiles().iter().map(|p| p.name.chars().count()).max().unwrap_or(0);
+        app.profiles()
+            .iter()
+            .map(|p| ListItem::new(compact_line(p, app.usage(&p.name), name_width)))
+            .collect()
+    } else {
+        app.profiles()
+            .iter()
+            .map(|p| detailed_item(p, app.usage(&p.name)))
+            .collect()
+    };
 
     // Highlight a profile row only when one is selected; when the header
     // Refresh control is focused, nothing here is highlighted.
@@ -143,6 +116,94 @@ fn draw_list(f: &mut Frame, area: Rect, app: &App) {
         // moves between the header and the list.
         .highlight_spacing(HighlightSpacing::Always);
     f.render_stateful_widget(list, area, &mut state);
+}
+
+/// The full four-line profile row: name (+ identity), 5h bar, 7d bar, last-used.
+fn detailed_item(p: &Profile, state: Option<&UsageState>) -> ListItem<'static> {
+    let check = if p.active { "✓ " } else { "  " };
+    let mut spans = vec![
+        Span::styled(
+            check,
+            Style::default().fg(if p.active { Color::Green } else { Color::DarkGray }),
+        ),
+        Span::styled(
+            p.name.clone(),
+            Style::default().add_modifier(if p.active {
+                Modifier::BOLD
+            } else {
+                Modifier::empty()
+            }),
+        ),
+    ];
+    if let Some(id) = p.identity() {
+        spans.push(Span::styled(format!(" ({id})"), secondary()));
+    }
+    let mut tags = Vec::new();
+    if !p.exists {
+        tags.push("MISSING DIR");
+    }
+    if !p.authenticated {
+        tags.push("not signed in");
+    }
+    let detail = format!(
+        "     last used: {}{}",
+        humanize(p.last_used),
+        if tags.is_empty() {
+            String::new()
+        } else {
+            format!("   [{}]", tags.join(", "))
+        }
+    );
+    let mut lines = vec![Line::from(spans)];
+    append_usage_lines(&mut lines, state);
+    lines.push(Line::from(Span::styled(detail, secondary())));
+    ListItem::new(lines)
+}
+
+/// A single compact row: `✓ alias  ██░░  25%  resets in 3h 36m (2:50pm)`. The
+/// alias is padded to `name_width` so bars align across rows; only the 5-hour
+/// window is shown.
+fn compact_line(p: &Profile, state: Option<&UsageState>, name_width: usize) -> Line<'static> {
+    let check = if p.active { "✓ " } else { "  " };
+    let mut spans = vec![
+        Span::styled(
+            check,
+            Style::default().fg(if p.active { Color::Green } else { Color::DarkGray }),
+        ),
+        Span::styled(
+            format!("{:<name_width$}", p.name),
+            Style::default().add_modifier(if p.active {
+                Modifier::BOLD
+            } else {
+                Modifier::empty()
+            }),
+        ),
+        Span::raw("  "),
+    ];
+    spans.extend(compact_usage_spans(state));
+    Line::from(spans)
+}
+
+/// The usage portion of a compact row: the 5-hour bar with its reset time, or a
+/// loading / unavailable / n-a placeholder.
+fn compact_usage_spans(state: Option<&UsageState>) -> Vec<Span<'static>> {
+    let dim = secondary();
+    match state {
+        Some(UsageState::Ready(u)) => match u.five_hour.as_ref() {
+            Some(w) => {
+                let pct = w.utilization.round() as i64;
+                let color = threshold_color(pct);
+                vec![
+                    Span::styled(crate::usage::bar(w.utilization, 16), Style::default().fg(color)),
+                    Span::styled(format!(" {pct:>3}%"), Style::default().fg(color)),
+                    Span::styled(format!("  {}", reset_phrase(w)), dim),
+                ]
+            }
+            None => vec![Span::styled("5h n/a", dim)],
+        },
+        Some(UsageState::Loading) | None => vec![Span::styled("usage …", dim)],
+        Some(UsageState::Unavailable) => vec![Span::styled("usage unavailable", dim)],
+    }
 }
 
 /// Append the two usage rows (5-hour and 7-day) for a profile, each a labeled
@@ -244,16 +305,20 @@ fn draw_footer(f: &mut Frame, area: Rect, app: &App) {
                 Line::from(Span::styled(format!(" {status}"), Style::default().fg(ACCENT)))
             } else {
                 // Keys depend on focus: on the header Refresh control you can't
-                // switch/rename/delete a profile, and Enter just refreshes.
-                let keys = if app.header_focused() {
-                    " ↑↓ move · enter toggle auto-refresh · a add · r refresh · q quit"
+                // switch/rename/delete a profile, and Enter just refreshes. The
+                // view toggle sits just before quit, which stays last.
+                let base = if app.header_focused() {
+                    " ↑↓ move · enter toggle auto-refresh · a add · r refresh"
                 } else if app.selected_profile().is_some_and(|p| p.active) {
                     // Already on the active profile: a (second) Enter closes.
-                    " ↑↓ move · enter close · a add · e edit · d delete · r refresh · q quit"
+                    " ↑↓ move · enter close · a add · e edit · d delete · r refresh"
                 } else {
-                    " ↑↓ move · enter switch · a add · e edit · d delete · r refresh · q quit"
+                    " ↑↓ move · enter switch · a add · e edit · d delete · r refresh"
                 };
-                Line::from(Span::styled(keys, secondary()))
+                // 'm' flips between the full and compact (minimal) views. Kept
+                // to 8 cols so the longest footer variant still fits the width.
+                let view = if app.compact() { " · m max" } else { " · m min" };
+                Line::from(Span::styled(format!("{base}{view} · q quit"), secondary()))
             }
         }
     };
@@ -263,6 +328,51 @@ fn draw_footer(f: &mut Frame, area: Rect, app: &App) {
 #[cfg(test)]
 mod tests {
     use super::*;
+    use crate::manager::Manager;
+    use crate::paths::Paths;
+    use ratatui::backend::TestBackend;
+    use ratatui::Terminal;
+    use tempfile::tempdir;
+
+    /// Flatten a rendered buffer into per-row strings for substring assertions.
+    fn rows(terminal: &Terminal<TestBackend>) -> Vec<String> {
+        let buf = terminal.backend().buffer();
+        let width = buf.area.width as usize;
+        buf.content()
+            .chunks(width)
+            .map(|row| row.iter().map(|c| c.symbol()).collect::<String>())
+            .collect()
+    }
+
+    #[test]
+    fn compact_view_renders_one_line_per_profile() {
+        let dir = tempdir().unwrap();
+        let paths = Paths::with_roots(dir.path().join("home"), dir.path().join("cfg"));
+        std::fs::create_dir_all(&paths.home).unwrap();
+        let mut mgr = Manager::load(paths).unwrap();
+        mgr.add("paul-nhost", None).unwrap();
+        mgr.add("work", None).unwrap();
+
+        let mut app = App::new(&mut mgr);
+        app.toggle_compact();
+
+        let mut terminal = Terminal::new(TestBackend::new(MAX_WIDTH, 12)).unwrap();
+        terminal.draw(|f| draw(f, &app)).unwrap();
+        let rows = rows(&terminal);
+
+        // The column a needle starts in (chars, not bytes: the border/check
+        // glyphs are multi-byte, so a byte offset would misreport the column).
+        let col = |needle: &str| {
+            rows.iter().find_map(|r| r.find(needle).map(|b| r[..b].chars().count()))
+        };
+
+        // Each profile is a single row; names are padded to the widest so their
+        // bars begin at the same column.
+        let paul = rows.iter().find(|r| r.contains("paul-nhost")).unwrap();
+        let work = rows.iter().find(|r| r.contains("work")).unwrap();
+        assert_ne!(paul, work, "each profile occupies its own line");
+        assert_eq!(col("paul-nhost"), col("work"), "aliases start in the same column");
+    }
 
     #[test]
     fn clamp_width_caps_wide_and_preserves_narrow() {
