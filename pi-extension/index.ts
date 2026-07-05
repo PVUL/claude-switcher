@@ -25,7 +25,7 @@
  */
 
 import type { AssistantMessage } from "@mariozechner/pi-ai";
-import type { ExtensionAPI, ExtensionContext, Theme } from "@mariozechner/pi-coding-agent";
+import type { ExtensionAPI, ExtensionCommandContext, ExtensionContext, Theme } from "@mariozechner/pi-coding-agent";
 import { truncateToWidth, visibleWidth } from "@mariozechner/pi-tui";
 import { execFile } from "node:child_process";
 import { existsSync, readlinkSync } from "node:fs";
@@ -202,6 +202,41 @@ function formatTokens(count: number): string {
 
 function sanitizeStatusText(text: string): string {
 	return text.replace(/[\r\n\t]/g, " ").replace(/ +/g, " ").trim();
+}
+
+// --- Reload countdown ------------------------------------------------------
+
+/**
+ * Seconds counted down before a switch-triggered reload. Gives the user a beat
+ * to read the switch confirmation and a sense of how long the reload will take,
+ * instead of the screen appearing to freeze while the session rebuilds.
+ */
+const RELOAD_COUNTDOWN_SECS = 5;
+
+const RELOAD_WIDGET_KEY = "claude-switcher-reload";
+
+/**
+ * Show a "reloading in 5… 4… 3…" countdown above the editor, then reload.
+ *
+ * The countdown runs entirely *before* ctx.reload() on purpose: reload emits
+ * session_shutdown and swaps in a fresh extension runtime, after which the
+ * captured ctx is stale (pi invalidates it), so a ticker spanning the reload
+ * can't safely touch the UI. We clear the widget just before reloading; the
+ * old instance's widgets are torn down with the session anyway.
+ *
+ * In non-interactive contexts (no widgets) it degrades to a plain reload.
+ */
+async function countdownThenReload(ctx: ExtensionCommandContext, name: string): Promise<void> {
+	if (ctx.hasUI) {
+		for (let n = RELOAD_COUNTDOWN_SECS; n > 0; n--) {
+			ctx.ui.setWidget(RELOAD_WIDGET_KEY, [`⟳ Switched to ${name} — reloading in ${n}…`]);
+			await new Promise((resolve) => setTimeout(resolve, 1000));
+		}
+		// Clear the widget before reload — the old runtime's widgets are torn
+		// down with the session, and the captured ctx is stale afterward.
+		ctx.ui.setWidget(RELOAD_WIDGET_KEY, undefined);
+	}
+	await ctx.reload();
 }
 
 // --- Footer factory --------------------------------------------------------
@@ -438,9 +473,8 @@ export default function (pi: ExtensionAPI) {
 			accountsCache = null;
 			snapshot = null; // force the footer to refetch usage for the new account
 
-			ctx.ui.notify(`Switched to ${name} — reloading…`, "info");
 			try {
-				await ctx.reload();
+				await countdownThenReload(ctx, name);
 			} catch (err) {
 				ctx.ui.notify(
 					`Account switched, but reload failed (${err instanceof Error ? err.message : String(err)}). ` +

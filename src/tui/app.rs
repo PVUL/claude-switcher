@@ -250,30 +250,9 @@ impl<'m> App<'m> {
         }
     }
 
-    /// Header toggle label, e.g. "auto-refresh: on". When on, appends a live
-    /// countdown to the next automatic refresh, e.g. "auto-refresh: on (42s)".
-    /// The countdown is suppressed while a fetch is in flight (the header
-    /// already shows "updating…").
+    /// Header toggle label, e.g. "auto-refresh: on".
     pub fn auto_refresh_label(&self) -> String {
-        if self.auto_refresh {
-            match self.next_refresh_secs() {
-                Some(secs) => format!("auto-refresh: on ({secs}s)"),
-                None => "auto-refresh: on".to_string(),
-            }
-        } else {
-            "auto-refresh: off".to_string()
-        }
-    }
-
-    /// Seconds until the next automatic refresh, or `None` while a fetch is
-    /// already running. Clamped at 0 so it never shows a negative value in the
-    /// brief window before `tick_auto_refresh` fires.
-    fn next_refresh_secs(&self) -> Option<i64> {
-        if !self.auto_refresh || self.is_refreshing() {
-            return None;
-        }
-        let elapsed = Local::now().signed_duration_since(self.last_updated).num_seconds();
-        Some((self.poll_interval_secs as i64 - elapsed).max(0))
+        format!("auto-refresh: {}", if self.auto_refresh { "on" } else { "off" })
     }
 
     /// Whether the compact, one-line-per-profile view is active.
