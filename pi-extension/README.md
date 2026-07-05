@@ -19,14 +19,14 @@ Two features:
    "resets in" wording, then the countdown, then the bar, keeping at least the
    account name.
 
-2. **`/switch [account]`** — change the active Claude account in-session. It
+2. **`/claude-switcher [account]`** — change the active Claude account in-session. It
    flips the claude-switcher symlink, re-points the running pi process at the new
    profile (`CLAUDE_CONFIG_DIR`), and reloads so the conversation rebuilds under
    the new account. Your terminal and history are preserved; your next message
    runs on the new account.
 
-   - `/switch` with no argument opens a picker (the active account is marked).
-   - `/switch takeyoung` switches directly; account names tab-complete.
+   - `/claude-switcher` with no argument opens a picker (the active account is marked).
+   - `/claude-switcher takeyoung` switches directly; account names tab-complete.
 
 ## Requirements
 
@@ -35,7 +35,7 @@ Two features:
 - pi driving Claude via
   [`pi-claude-bridge`](https://www.npmjs.com/package/@vanillagreen/pi-claude-bridge)
   with `pathToClaudeCodeExecutable` pointed at `claude-switcher-exec` (see the
-  root README). The `/switch` continuity relies on that setup.
+  root README). The `/claude-switcher` continuity relies on that setup.
 
 ## Install
 
@@ -75,5 +75,5 @@ npm test        # footer layout / degradation test (no pi required)
   footer falls back to showing the path across the full width.
 - `setFooter` replaces pi's built-in footer wholesale, so the token/model row is
   reproduced here. If pi changes its stock footer, this may need to track it.
-- Switching only takes effect between turns. `/switch` cannot hot-swap a Claude
+- Switching only takes effect between turns. `/claude-switcher` cannot hot-swap a Claude
   subprocess that is already mid-turn.

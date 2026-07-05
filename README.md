@@ -286,7 +286,7 @@ Override locations (handy for testing or non-standard setups):
 This repo is a small monorepo: the Rust app lives at the root, and
 [`pi-extension/`](pi-extension) holds **pi-claude-switcher**, a
 [pi](https://github.com/badlogic/pi-mono) extension that surfaces the active
-account + usage in pi's footer and adds a `/switch [account]` command to change
+account + usage in pi's footer and adds a `/claude-switcher [account]` command to change
 accounts without leaving your pi session. See
 [`pi-extension/README.md`](pi-extension/README.md).
 

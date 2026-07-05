@@ -3,7 +3,7 @@
  *
  * Two features:
  *  1. Footer status — the active account + 5-hour usage on the footer's path row.
- *  2. /switch [account] — change the active Claude account without leaving pi
+ *  2. /claude-switcher [account] — change the active Claude account without leaving pi
  *     (flips the symlink, re-points this process, reloads so history carries).
  *
  * Shows the active Claude account on the RIGHT side of the footer's path row
@@ -383,11 +383,11 @@ export default function (pi: ExtensionAPI) {
 		}
 	});
 
-	// /switch [account] — change the active Claude account without leaving pi.
+	// /claude-switcher [account] — change the active Claude account without leaving pi.
 	// Flips the claude-switcher symlink, re-points this process's
 	// CLAUDE_CONFIG_DIR at the new profile, then reloads so the bridge rebuilds
 	// the conversation under the new account (history is preserved pi-side).
-	pi.registerCommand("switch", {
+	pi.registerCommand("claude-switcher", {
 		description: "Switch the active Claude account (claude-switcher)",
 		getArgumentCompletions: async (prefix) => {
 			const accounts = await listAccounts();

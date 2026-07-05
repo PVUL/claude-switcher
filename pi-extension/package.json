@@ -1,7 +1,7 @@
 {
   "name": "pi-claude-switcher",
   "version": "0.1.0",
-  "description": "Pi extension for claude-switcher: shows the active Claude account + usage in the footer, and switches accounts in-session with /switch.",
+  "description": "Pi extension for claude-switcher: shows the active Claude account + usage in the footer, and switches accounts in-session with /claude-switcher.",
   "type": "module",
   "license": "MIT",
   "author": "Paul Yun",
