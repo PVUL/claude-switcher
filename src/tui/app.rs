@@ -72,7 +72,7 @@ pub struct App<'m> {
 }
 
 /// Minimum gap between manual usage refreshes.
-const REFRESH_COOLDOWN_SECS: i64 = 60;
+const REFRESH_COOLDOWN_SECS: i64 = 30;
 
 /// Human phrasing of an interval in seconds, e.g. 600 -> "10 min".
 fn format_interval(secs: u64) -> String {
@@ -250,9 +250,30 @@ impl<'m> App<'m> {
         }
     }
 
-    /// Header toggle label, e.g. "auto-refresh: on".
+    /// Header toggle label, e.g. "auto-refresh: on". When on, appends a live
+    /// countdown to the next automatic refresh, e.g. "auto-refresh: on (42s)".
+    /// The countdown is suppressed while a fetch is in flight (the header
+    /// already shows "updating…").
     pub fn auto_refresh_label(&self) -> String {
-        format!("auto-refresh: {}", if self.auto_refresh { "on" } else { "off" })
+        if self.auto_refresh {
+            match self.next_refresh_secs() {
+                Some(secs) => format!("auto-refresh: on ({secs}s)"),
+                None => "auto-refresh: on".to_string(),
+            }
+        } else {
+            "auto-refresh: off".to_string()
+        }
+    }
+
+    /// Seconds until the next automatic refresh, or `None` while a fetch is
+    /// already running. Clamped at 0 so it never shows a negative value in the
+    /// brief window before `tick_auto_refresh` fires.
+    fn next_refresh_secs(&self) -> Option<i64> {
+        if !self.auto_refresh || self.is_refreshing() {
+            return None;
+        }
+        let elapsed = Local::now().signed_duration_since(self.last_updated).num_seconds();
+        Some((self.poll_interval_secs as i64 - elapsed).max(0))
     }
 
     /// Whether the compact, one-line-per-profile view is active.
@@ -380,7 +401,7 @@ impl<'m> App<'m> {
         });
     }
 
-    /// Manual refresh ('r'): re-fetch usage. Debounced to once per minute while
+    /// Manual refresh ('r'): re-fetch usage. Debounced to once every 30s while
     /// data is on screen, but the debounce is lifted whenever a profile's usage
     /// is currently unavailable (e.g. offline) so a failed lookup can be retried
     /// immediately. A successful refresh also resets the auto-refresh timer.
@@ -390,7 +411,7 @@ impl<'m> App<'m> {
                 - Local::now().signed_duration_since(self.last_updated).num_seconds();
             if remaining > 0 {
                 self.status = Some(format!(
-                    "Usage refreshes at most once/min — try again in {remaining}s"
+                    "Usage refreshes at most once every {REFRESH_COOLDOWN_SECS}s — try again in {remaining}s"
                 ));
                 return;
             }
@@ -760,7 +781,7 @@ mod tests {
         // Just-loaded data is fresh, so a manual refresh is rate-limited.
         app.manual_refresh();
         assert!(
-            app.status.as_deref().unwrap().contains("once/min"),
+            app.status.as_deref().unwrap().contains("try again in"),
             "got {:?}",
             app.status
         );
@@ -793,7 +814,7 @@ mod tests {
         );
         app.manual_refresh();
         assert!(
-            !app.status.as_deref().unwrap_or_default().contains("once/min"),
+            !app.status.as_deref().unwrap_or_default().contains("try again in"),
             "empty (n/a) usage should bypass the cooldown, got {:?}",
             app.status
         );
@@ -803,7 +824,7 @@ mod tests {
         app.usage.insert("solo".to_string(), UsageState::Unavailable);
         app.manual_refresh();
         assert!(
-            !app.status.as_deref().unwrap_or_default().contains("once/min"),
+            !app.status.as_deref().unwrap_or_default().contains("try again in"),
             "unavailable usage should bypass the cooldown, got {:?}",
             app.status
         );
