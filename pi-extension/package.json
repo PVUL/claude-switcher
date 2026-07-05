@@ -1,0 +1,40 @@
+{
+  "name": "pi-claude-switcher",
+  "version": "0.1.0",
+  "description": "Pi extension for claude-switcher: shows the active Claude account + usage in the footer, and switches accounts in-session with /switch.",
+  "type": "module",
+  "license": "MIT",
+  "author": "Paul Yun",
+  "repository": {
+    "type": "git",
+    "url": "git+https://github.com/pyun/claude-switcher.git",
+    "directory": "pi-extension"
+  },
+  "keywords": [
+    "pi",
+    "pi-extension",
+    "claude",
+    "claude-code",
+    "claude-switcher"
+  ],
+  "files": [
+    "index.ts",
+    "README.md"
+  ],
+  "pi": {
+    "extensions": [
+      "./index.ts"
+    ]
+  },
+  "scripts": {
+    "check": "tsc --noEmit",
+    "test": "node test/layout-check.mjs"
+  },
+  "devDependencies": {
+    "@mariozechner/pi-ai": "^0.73.1",
+    "@mariozechner/pi-coding-agent": "^0.73.1",
+    "@mariozechner/pi-tui": "^0.73.1",
+    "@types/node": "^22.0.0",
+    "typescript": "^5.6.0"
+  }
+}
