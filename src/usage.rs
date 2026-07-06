@@ -160,7 +160,66 @@ fn access_token(profile_path: &Path, home: &Path, active_link: Option<&Path>) ->
     }
     #[cfg(not(target_os = "macos"))]
     let _ = (home, active_link);
-    None
+
+    // True last resort: an ambient CLAUDE_CODE_OAUTH_TOKEN (headless installs,
+    // CI, the pi box). It only yields usage if it happens to carry the
+    // user:profile scope; a plain `claude setup-token` does not, and the
+    // endpoint's scope error is handled upstream (reported as unavailable).
+    env_token()
+}
+
+/// The ambient coding token, if any (`CLAUDE_CODE_OAUTH_TOKEN`).
+fn env_token() -> Option<String> {
+    match std::env::var("CLAUDE_CODE_OAUTH_TOKEN") {
+        Ok(t) if !t.is_empty() => Some(t),
+        _ => None,
+    }
+}
+
+/// Classification of the ambient `CLAUDE_CODE_OAUTH_TOKEN`, for `doctor`.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum EnvToken {
+    /// No `CLAUDE_CODE_OAUTH_TOKEN` in the environment.
+    Absent,
+    /// Present and accepted by the usage endpoint.
+    Usable,
+    /// Present but rejected for lacking the `user:profile` scope — a coding-only
+    /// `claude setup-token`. It can drive Claude Code but not usage/profile, so
+    /// claude-switcher's usage + "authenticated" display need a real login.
+    ScopeLimited,
+    /// Present but unusable for another reason (expired token, network error).
+    Unusable,
+}
+
+/// Probe the ambient token against the usage endpoint and classify it. Does one
+/// network call; only used by `doctor` (never on the hot path).
+pub fn classify_env_token() -> EnvToken {
+    let Some(token) = env_token() else {
+        return EnvToken::Absent;
+    };
+    match raw_call(&token) {
+        None => EnvToken::Unusable,
+        Some(body) => match serde_json::from_slice::<serde_json::Value>(&body) {
+            Ok(v) => {
+                let msg = v
+                    .pointer("/error/message")
+                    .and_then(|m| m.as_str())
+                    .unwrap_or("");
+                if !msg.is_empty() {
+                    if msg.contains("scope") {
+                        EnvToken::ScopeLimited
+                    } else {
+                        EnvToken::Unusable
+                    }
+                } else if parse_usage(&body).is_some() {
+                    EnvToken::Usable
+                } else {
+                    EnvToken::Unusable
+                }
+            }
+            Err(_) => EnvToken::Unusable,
+        },
+    }
 }
 
 fn token_from_file(dir: &Path) -> Option<Cred> {
@@ -173,7 +232,8 @@ fn token_from_file(dir: &Path) -> Option<Cred> {
 /// active-symlink slot, which is not account-specific.
 fn own_keychain_services(profile_path: &Path, home: &Path) -> Vec<String> {
     let mut paths: Vec<PathBuf> = Vec::new();
-    let resolved = std::fs::canonicalize(profile_path).unwrap_or_else(|_| profile_path.to_path_buf());
+    let resolved =
+        std::fs::canonicalize(profile_path).unwrap_or_else(|_| profile_path.to_path_buf());
     paths.push(resolved.clone());
     if resolved != profile_path {
         paths.push(profile_path.to_path_buf());
@@ -198,7 +258,10 @@ fn config_hash(path: &Path) -> String {
     let mut hasher = Sha256::new();
     hasher.update(path.to_string_lossy().as_bytes());
     let digest = hasher.finalize();
-    format!("{:02x}{:02x}{:02x}{:02x}", digest[0], digest[1], digest[2], digest[3])
+    format!(
+        "{:02x}{:02x}{:02x}{:02x}",
+        digest[0], digest[1], digest[2], digest[3]
+    )
 }
 
 #[cfg(target_os = "macos")]
@@ -220,7 +283,10 @@ fn parse_creds(text: &str) -> Option<Cred> {
     let obj = value.get("claudeAiOauth").unwrap_or(&value);
     let access_token = obj.get("accessToken")?.as_str()?.to_string();
     let expires_at = obj.get("expiresAt").and_then(|v| v.as_i64());
-    Some(Cred { access_token, expires_at })
+    Some(Cred {
+        access_token,
+        expires_at,
+    })
 }
 
 // ---- API call -------------------------------------------------------------
@@ -239,6 +305,13 @@ struct RawUsage {
 }
 
 fn call_api(token: &str) -> Option<Usage> {
+    parse_usage(&raw_call(token)?)
+}
+
+/// Raw GET to the usage endpoint, returning the response body on a successful
+/// transfer. Callers decide what the body means ([`parse_usage`] for real data,
+/// [`classify_env_token`] for diagnostics).
+fn raw_call(token: &str) -> Option<Vec<u8>> {
     let output = Command::new("curl")
         .args([
             "-s",
@@ -259,7 +332,7 @@ fn call_api(token: &str) -> Option<Usage> {
     if !output.status.success() {
         return None;
     }
-    parse_usage(&output.stdout)
+    Some(output.stdout)
 }
 
 /// Turn a usage-endpoint response body into a `Usage`, or `None` if it isn't a
@@ -311,16 +384,25 @@ mod tests {
     #[test]
     fn config_hash_matches_claude_code() {
         // Verified against a real Keychain entry created by Claude Code.
-        assert_eq!(config_hash(Path::new("/Users/pyun/.claude-takeyoung")), "fd08061c");
+        assert_eq!(
+            config_hash(Path::new("/Users/pyun/.claude-takeyoung")),
+            "fd08061c"
+        );
     }
 
     #[test]
     fn default_dir_uses_plain_service_name() {
         let home = Path::new("/Users/pyun");
-        assert_eq!(service_name(&home.join(".claude"), home), "Claude Code-credentials");
+        assert_eq!(
+            service_name(&home.join(".claude"), home),
+            "Claude Code-credentials"
+        );
         assert_eq!(
             service_name(&home.join(".claude-work"), home),
-            format!("Claude Code-credentials-{}", config_hash(&home.join(".claude-work")))
+            format!(
+                "Claude Code-credentials-{}",
+                config_hash(&home.join(".claude-work"))
+            )
         );
     }
 

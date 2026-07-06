@@ -124,7 +124,30 @@ claude-switcher remove client                           # unmanage (directory ke
 claude-switcher remove client --purge                   # unmanage AND delete the directory
 claude-switcher env                                     # print shell setup (static export)
 claude-switcher shellenv                                # print live shell integration (in-shell switching)
+claude-switcher doctor                                  # diagnose + repair setup (see below)
+claude-switcher doctor -y                               # ...applying all safe fixes without prompting
 ```
+
+### `doctor` — set up or fix a machine
+
+`claude-switcher doctor` walks the whole setup and repairs what it safely can:
+it adopts the Claude config directories already on the machine, activates a
+profile (the only one, or one you pick), then checks that each profile is
+*signed in* and that the active profile's **usage** endpoint is reachable —
+reporting exactly what's wrong and the command to fix it. Safe, additive fixes
+(adopting a directory, activating the sole profile) are applied automatically;
+anything that needs a human (choosing among accounts, signing in through a
+browser) is guided, never forced.
+
+It also runs **automatically on launch** (before the TUI) when setup looks
+incomplete, and stays silent when everything is healthy. Non-interactive callers
+(pipes, the pi extension's `usage --json`) never trigger it; set
+`CLAUDE_SWITCHER_NO_WIZARD=1` to opt out entirely.
+
+A common headless case it names precisely: if `CLAUDE_CODE_OAUTH_TOKEN` is set
+to a coding-only `claude setup-token` (as on a server), Claude Code works but
+usage/sign-in display won't — that token lacks the `user:profile` scope, so
+`doctor` tells you to do a real interactive `claude` login for the profile.
 
 ### Importing your current setup
 

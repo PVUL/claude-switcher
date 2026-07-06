@@ -3,6 +3,7 @@
 mod cli;
 mod commands;
 mod detect;
+mod doctor;
 mod error;
 mod manager;
 mod metadata;
@@ -35,11 +36,12 @@ fn run(cli: Cli) -> error::Result<()> {
     let paths = Paths::discover()?;
     let mut manager = Manager::load(paths)?;
 
-    // On first use, or for read-only commands, import any Claude config you're
-    // already signed in to so the tool shows your current account right away.
+    // For read-only commands, import any Claude config you're already signed in
+    // to so the tool shows your current account right away. (The interactive
+    // launch path below does its own, richer setup via `doctor`.)
     let bootstrap = matches!(
         cli.command,
-        None | Some(Command::List { .. }) | Some(Command::Current) | Some(Command::Usage { .. })
+        Some(Command::List { .. }) | Some(Command::Current) | Some(Command::Usage { .. })
     );
     if bootstrap {
         let adopted = manager.bootstrap_if_empty()?;
@@ -53,6 +55,11 @@ fn run(cli: Cli) -> error::Result<()> {
 
     match cli.command {
         Some(cmd) => commands::run(cmd, &mut manager),
-        None => tui::run(&mut manager),
+        None => {
+            // Before the TUI, make sure setup is sane (adopt dirs, activate a
+            // profile, flag sign-in/usage gaps). Silent when already healthy.
+            doctor::ensure_setup_on_launch(&mut manager)?;
+            tui::run(&mut manager)
+        }
     }
 }

@@ -54,6 +54,7 @@ pub fn run(cmd: Command, mgr: &mut Manager) -> Result<()> {
         Command::Usage { json } => usage(mgr, json)?,
         Command::Env => print_env(mgr),
         Command::Shellenv => print!("{}", shellenv_script()),
+        Command::Doctor { yes } => crate::doctor::run(mgr, yes)?,
     }
     Ok(())
 }
@@ -115,7 +116,10 @@ fn maybe_migrate(mgr: &Manager, name: &str, profile: &Profile, migrate_state: bo
 fn derive_default_name(path: &std::path::Path) -> String {
     match path.file_name().and_then(|n| n.to_str()) {
         Some(".claude") => "default".to_string(),
-        Some(n) => n.trim_start_matches(".claude-").trim_start_matches('.').to_string(),
+        Some(n) => n
+            .trim_start_matches(".claude-")
+            .trim_start_matches('.')
+            .to_string(),
         None => "default".to_string(),
     }
 }
@@ -141,8 +145,14 @@ fn list(mgr: &Manager, json: bool) -> Result<()> {
         println!("{line}");
         println!("      path:          {}", p.raw_path);
         println!("      last used:     {}", humanize(p.last_used));
-        println!("      directory:     {}", if p.exists { "present" } else { "MISSING" });
-        println!("      authenticated: {}", if p.authenticated { "yes" } else { "no" });
+        println!(
+            "      directory:     {}",
+            if p.exists { "present" } else { "MISSING" }
+        );
+        println!(
+            "      authenticated: {}",
+            if p.authenticated { "yes" } else { "no" }
+        );
     }
     Ok(())
 }
@@ -182,11 +192,16 @@ fn usage(mgr: &Manager, json: bool) -> Result<()> {
                     print_window("opus", Some(w));
                 }
             }
-            None => println!("      usage:  unavailable (not signed in, token expired, or offline)"),
+            None => {
+                println!("      usage:  unavailable (not signed in, token expired, or offline)")
+            }
         }
     }
     if json {
-        println!("{}", serde_json::to_string_pretty(&json_items).expect("serializable"));
+        println!(
+            "{}",
+            serde_json::to_string_pretty(&json_items).expect("serializable")
+        );
     }
     Ok(())
 }
@@ -205,7 +220,10 @@ fn print_window(label: &str, window: Option<&crate::usage::Window>) {
 
 /// Combine relative and absolute reset info, e.g. "resets in 3h 36m (14:50)".
 fn reset_phrase(window: &crate::usage::Window) -> String {
-    match (crate::usage::resets_in(window), crate::usage::reset_clock(window)) {
+    match (
+        crate::usage::resets_in(window),
+        crate::usage::reset_clock(window),
+    ) {
         (Some(rel), Some(clock)) => format!("{rel} ({clock})"),
         (Some(rel), None) => rel,
         _ => String::new(),

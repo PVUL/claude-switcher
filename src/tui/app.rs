@@ -25,9 +25,14 @@ pub enum UsageState {
 pub enum Mode {
     Normal,
     /// Text entry for adding or renaming.
-    Input { action: InputAction, buffer: String },
+    Input {
+        action: InputAction,
+        buffer: String,
+    },
     /// Awaiting y/n confirmation for a delete.
-    ConfirmDelete { name: String },
+    ConfirmDelete {
+        name: String,
+    },
 }
 
 #[derive(Debug, Clone, PartialEq, Eq)]
@@ -99,10 +104,7 @@ impl<'m> App<'m> {
         // Start on the active profile's row (profile `i` is at row `i + 1`) so
         // the cursor lands on the account in use; fall back to the Refresh
         // control at row 0 when nothing is active.
-        let selected = profiles
-            .iter()
-            .position(|p| p.active)
-            .map_or(0, |i| i + 1);
+        let selected = profiles.iter().position(|p| p.active).map_or(0, |i| i + 1);
         let (usage_tx, usage_rx) = mpsc::channel();
         let mut app = App {
             manager,
@@ -165,7 +167,8 @@ impl<'m> App<'m> {
             return;
         }
         if !profile.exists {
-            self.usage.insert(profile.name.clone(), UsageState::Unavailable);
+            self.usage
+                .insert(profile.name.clone(), UsageState::Unavailable);
             return;
         }
         self.usage.insert(profile.name.clone(), UsageState::Loading);
@@ -223,7 +226,9 @@ impl<'m> App<'m> {
 
     /// True while any usage lookup is still in flight.
     pub fn is_refreshing(&self) -> bool {
-        self.usage.values().any(|s| matches!(s, UsageState::Loading))
+        self.usage
+            .values()
+            .any(|s| matches!(s, UsageState::Loading))
     }
 
     /// True when at least one profile has no usable usage on screen — either the
@@ -252,7 +257,10 @@ impl<'m> App<'m> {
 
     /// Header toggle label, e.g. "auto-refresh: on".
     pub fn auto_refresh_label(&self) -> String {
-        format!("auto-refresh: {}", if self.auto_refresh { "on" } else { "off" })
+        format!(
+            "auto-refresh: {}",
+            if self.auto_refresh { "on" } else { "off" }
+        )
     }
 
     /// Whether the compact, one-line-per-profile view is active.
@@ -289,7 +297,8 @@ impl<'m> App<'m> {
     }
 
     pub fn selected_profile(&self) -> Option<&Profile> {
-        self.selected_profile_index().and_then(|i| self.profiles.get(i))
+        self.selected_profile_index()
+            .and_then(|i| self.profiles.get(i))
     }
 
     /// Total selectable rows: the Refresh control plus every profile.
@@ -387,7 +396,9 @@ impl<'m> App<'m> {
     pub fn manual_refresh(&mut self) {
         if !self.usage_unavailable() {
             let remaining = REFRESH_COOLDOWN_SECS
-                - Local::now().signed_duration_since(self.last_updated).num_seconds();
+                - Local::now()
+                    .signed_duration_since(self.last_updated)
+                    .num_seconds();
             if remaining > 0 {
                 self.status = Some(format!(
                     "Usage refreshes at most once every {REFRESH_COOLDOWN_SECS}s — try again in {remaining}s"
@@ -407,7 +418,9 @@ impl<'m> App<'m> {
         if !self.auto_refresh {
             return;
         }
-        let elapsed = Local::now().signed_duration_since(self.last_updated).num_seconds();
+        let elapsed = Local::now()
+            .signed_duration_since(self.last_updated)
+            .num_seconds();
         if elapsed >= self.poll_interval_secs as i64 {
             self.do_refresh();
         }
@@ -465,7 +478,9 @@ impl<'m> App<'m> {
     pub fn begin_rename(&mut self) {
         if let Some(p) = self.selected_profile() {
             self.mode = Mode::Input {
-                action: InputAction::Rename { from: p.name.clone() },
+                action: InputAction::Rename {
+                    from: p.name.clone(),
+                },
                 buffer: p.name.clone(),
             };
         }
@@ -473,7 +488,9 @@ impl<'m> App<'m> {
 
     pub fn begin_delete(&mut self) {
         if let Some(p) = self.selected_profile() {
-            self.mode = Mode::ConfirmDelete { name: p.name.clone() };
+            self.mode = Mode::ConfirmDelete {
+                name: p.name.clone(),
+            };
         }
     }
 
@@ -500,7 +517,10 @@ impl<'m> App<'m> {
         };
         let name = buffer.trim().to_string();
         let result = match action {
-            InputAction::Add => self.manager.add(&name, None).map(|_| format!("Added '{name}'.")),
+            InputAction::Add => self
+                .manager
+                .add(&name, None)
+                .map(|_| format!("Added '{name}'.")),
             InputAction::Rename { from } => self
                 .manager
                 .rename(&from, &name)
@@ -568,9 +588,20 @@ mod tests {
         assert_eq!(app.profiles().len(), 2);
 
         // Navigate and switch (row 0 is Refresh, so profiles start at row 1).
-        app.selected = app.profiles().iter().position(|p| p.name == "personal").unwrap() + 1;
+        app.selected = app
+            .profiles()
+            .iter()
+            .position(|p| p.name == "personal")
+            .unwrap()
+            + 1;
         app.switch_selected();
-        assert!(app.profiles().iter().find(|p| p.name == "personal").unwrap().active);
+        assert!(
+            app.profiles()
+                .iter()
+                .find(|p| p.name == "personal")
+                .unwrap()
+                .active
+        );
 
         // Rename selected.
         app.begin_rename();
@@ -580,7 +611,12 @@ mod tests {
         assert!(app.profiles().iter().any(|p| p.name == "personaX"));
 
         // Delete (kept dir).
-        app.selected = app.profiles().iter().position(|p| p.name == "work").unwrap() + 1;
+        app.selected = app
+            .profiles()
+            .iter()
+            .position(|p| p.name == "work")
+            .unwrap()
+            + 1;
         app.begin_delete();
         app.confirm_delete();
         assert_eq!(app.profiles().len(), 1);
@@ -600,10 +636,18 @@ mod tests {
         }
 
         // Select the non-active profile: the first Enter switches to it.
-        app.selected = app.profiles().iter().position(|p| p.name == "personal").unwrap() + 1;
+        app.selected = app
+            .profiles()
+            .iter()
+            .position(|p| p.name == "personal")
+            .unwrap()
+            + 1;
         assert!(!app.selected_profile().unwrap().active);
         app.activate();
-        assert!(app.selected_profile().unwrap().active, "first Enter switches");
+        assert!(
+            app.selected_profile().unwrap().active,
+            "first Enter switches"
+        );
         assert!(!app.should_quit, "first Enter does not close");
 
         // A second Enter, now on the active profile, closes the TUI.
@@ -728,7 +772,10 @@ mod tests {
             profiles: HashMap::from([(
                 "work".to_string(),
                 Usage {
-                    five_hour: Some(Window { utilization: 42.0, resets_at: None }),
+                    five_hour: Some(Window {
+                        utilization: 42.0,
+                        resets_at: None,
+                    }),
                     seven_day: None,
                     seven_day_opus: None,
                 },
@@ -789,21 +836,32 @@ mod tests {
         // both rows — there's nothing to protect, so it should bypass too.
         app.usage.insert(
             "solo".to_string(),
-            UsageState::Ready(Usage { five_hour: None, seven_day: None, seven_day_opus: None }),
+            UsageState::Ready(Usage {
+                five_hour: None,
+                seven_day: None,
+                seven_day_opus: None,
+            }),
         );
         app.manual_refresh();
         assert!(
-            !app.status.as_deref().unwrap_or_default().contains("try again in"),
+            !app.status
+                .as_deref()
+                .unwrap_or_default()
+                .contains("try again in"),
             "empty (n/a) usage should bypass the cooldown, got {:?}",
             app.status
         );
         assert!(matches!(app.usage("solo"), Some(UsageState::Loading)));
 
         // A failed lookup (e.g. offline) bypasses the cooldown as well.
-        app.usage.insert("solo".to_string(), UsageState::Unavailable);
+        app.usage
+            .insert("solo".to_string(), UsageState::Unavailable);
         app.manual_refresh();
         assert!(
-            !app.status.as_deref().unwrap_or_default().contains("try again in"),
+            !app.status
+                .as_deref()
+                .unwrap_or_default()
+                .contains("try again in"),
             "unavailable usage should bypass the cooldown, got {:?}",
             app.status
         );
@@ -822,7 +880,10 @@ mod tests {
         app.input_push('d');
         app.input_push('/');
         app.commit_input();
-        assert!(matches!(app.mode, Mode::Input { .. }), "stays in input on error");
+        assert!(
+            matches!(app.mode, Mode::Input { .. }),
+            "stays in input on error"
+        );
         assert!(app.status.as_deref().unwrap().starts_with("Error"));
     }
 }

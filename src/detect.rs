@@ -66,7 +66,9 @@ fn plan_label(org_type: Option<&str>, rate_tier: Option<&str>) -> Option<String>
     org_type.and_then(|o| {
         let base = o.strip_prefix("claude_").unwrap_or(o);
         let mut chars = base.chars();
-        chars.next().map(|f| f.to_uppercase().collect::<String>() + chars.as_str())
+        chars
+            .next()
+            .map(|f| f.to_uppercase().collect::<String>() + chars.as_str())
     })
 }
 
@@ -161,13 +163,19 @@ mod tests {
         )
         .unwrap();
         // organizationType wins: a team member is "Team", not "Max 5x".
-        assert_eq!(inspect(dir.path(), dir.path()).plan.as_deref(), Some("Team"));
+        assert_eq!(
+            inspect(dir.path(), dir.path()).plan.as_deref(),
+            Some("Team")
+        );
     }
 
     #[test]
     fn plan_label_variants() {
         assert_eq!(plan_label(Some("claude_pro"), None).as_deref(), Some("Pro"));
-        assert_eq!(plan_label(Some("claude_team"), None).as_deref(), Some("Team"));
+        assert_eq!(
+            plan_label(Some("claude_team"), None).as_deref(),
+            Some("Team")
+        );
         assert_eq!(
             plan_label(Some("claude_enterprise"), None).as_deref(),
             Some("Enterprise")

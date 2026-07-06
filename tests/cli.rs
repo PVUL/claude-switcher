@@ -60,7 +60,11 @@ fn write_account(dir: &Path, email: &str) {
 fn first_add_becomes_active_and_creates_symlink() {
     let h = Harness::new();
     let out = h.run(&["add", "work"]);
-    assert!(out.status.success(), "{}", String::from_utf8_lossy(&out.stderr));
+    assert!(
+        out.status.success(),
+        "{}",
+        String::from_utf8_lossy(&out.stderr)
+    );
 
     let target = h.link_target().expect("symlink should exist");
     assert_eq!(target, h.home.join(".claude-work"));
@@ -98,13 +102,20 @@ fn rename_moves_directory_and_repoints() {
     write_account(&h.home.join(".claude-work"), "paul@nhost.io");
 
     let out = h.run(&["rename", "work", "client"]);
-    assert!(out.status.success(), "{}", String::from_utf8_lossy(&out.stderr));
+    assert!(
+        out.status.success(),
+        "{}",
+        String::from_utf8_lossy(&out.stderr)
+    );
 
     assert!(!h.home.join(".claude-work").exists());
     assert!(h.home.join(".claude-client").is_dir());
     assert_eq!(h.link_target().unwrap(), h.home.join(".claude-client"));
     // Email survives the move because it lives in the moved directory.
-    assert_eq!(stdout(&h.run(&["current"])).trim(), "client (paul@nhost.io)");
+    assert_eq!(
+        stdout(&h.run(&["current"])).trim(),
+        "client (paul@nhost.io)"
+    );
 }
 
 #[test]
@@ -176,8 +187,17 @@ fn adopt_registers_existing_dir_in_place() {
     let h = Harness::new();
     // A pre-existing, signed-in config directory.
     write_account(&h.home.join(".claude-work"), "paul@nhost.io");
-    let out = h.run(&["adopt", "work", "--path", h.home.join(".claude-work").to_str().unwrap()]);
-    assert!(out.status.success(), "{}", String::from_utf8_lossy(&out.stderr));
+    let out = h.run(&[
+        "adopt",
+        "work",
+        "--path",
+        h.home.join(".claude-work").to_str().unwrap(),
+    ]);
+    assert!(
+        out.status.success(),
+        "{}",
+        String::from_utf8_lossy(&out.stderr)
+    );
     // First adopted profile becomes active and is not copied.
     assert_eq!(h.link_target().unwrap(), h.home.join(".claude-work"));
     assert_eq!(stdout(&h.run(&["current"])).trim(), "work (paul@nhost.io)");
@@ -195,9 +215,16 @@ fn adopt_default_derives_name_and_migrates_state() {
     .unwrap();
 
     let out = h.run(&["adopt", "--migrate-state"]);
-    assert!(out.status.success(), "{}", String::from_utf8_lossy(&out.stderr));
+    assert!(
+        out.status.success(),
+        "{}",
+        String::from_utf8_lossy(&out.stderr)
+    );
     // Name derived from ~/.claude -> "default".
-    assert_eq!(stdout(&h.run(&["current"])).trim(), "default (paul@nhost.io)");
+    assert_eq!(
+        stdout(&h.run(&["current"])).trim(),
+        "default (paul@nhost.io)"
+    );
     // State was copied into the profile dir; original left untouched.
     assert!(h.home.join(".claude/.claude.json").is_file());
     assert!(h.home.join(".claude.json").is_file());
@@ -211,7 +238,11 @@ fn adopt_scan_finds_all_unmanaged_configs() {
     std::fs::create_dir_all(h.home.join(".claudebar")).unwrap(); // not a claude config
 
     let out = h.run(&["adopt", "--scan"]);
-    assert!(out.status.success(), "{}", String::from_utf8_lossy(&out.stderr));
+    assert!(
+        out.status.success(),
+        "{}",
+        String::from_utf8_lossy(&out.stderr)
+    );
     let listed = stdout(&h.run(&["list"]));
     assert!(listed.contains("work"), "{listed}");
     assert!(listed.contains("client"), "{listed}");
@@ -254,7 +285,11 @@ fn list_orders_active_first_then_by_recency() {
         .map(|p| p["name"].as_str().unwrap())
         .collect();
     // active (pinned) -> recent -> old -> never (no usage, last).
-    assert_eq!(order, vec!["active", "recent", "old", "never"], "got {order:?}");
+    assert_eq!(
+        order,
+        vec!["active", "recent", "old", "never"],
+        "got {order:?}"
+    );
 }
 
 #[test]
@@ -270,7 +305,11 @@ fn bootstrap_shows_current_account_on_first_run() {
 
     // `current` (a read command) auto-imports on first use.
     let out = h.run(&["current"]);
-    assert!(out.status.success(), "{}", String::from_utf8_lossy(&out.stderr));
+    assert!(
+        out.status.success(),
+        "{}",
+        String::from_utf8_lossy(&out.stderr)
+    );
     assert_eq!(stdout(&out).trim(), "default (paul@nhost.io)");
     assert_eq!(h.link_target().unwrap(), h.home.join(".claude"));
 }

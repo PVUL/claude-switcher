@@ -90,4 +90,12 @@ pub enum Command {
     /// the `claude-switcher` command so that, after every switch, it re-resolves
     /// and re-exports CLAUDE_CONFIG_DIR in the CURRENT shell.
     Shellenv,
+    /// Diagnose and repair your setup: adopt existing Claude dirs, activate a
+    /// profile, and check sign-in + usage. Applies safe fixes automatically and
+    /// guides the rest. Also runs on launch when setup looks incomplete.
+    Doctor {
+        /// Apply all suggested fixes without prompting.
+        #[arg(long, short = 'y')]
+        yes: bool,
+    },
 }

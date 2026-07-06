@@ -65,7 +65,14 @@ mod tests {
 
     #[test]
     fn rejects_bad_names() {
-        for name in ["", "has space", "with/slash", "dot.name", crate::paths::reserved_name(), &"x".repeat(65)] {
+        for name in [
+            "",
+            "has space",
+            "with/slash",
+            "dot.name",
+            crate::paths::reserved_name(),
+            &"x".repeat(65),
+        ] {
             assert!(validate_name(name).is_err(), "{name:?} should be invalid");
         }
     }
