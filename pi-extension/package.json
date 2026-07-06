@@ -7,7 +7,7 @@
   "author": "Paul Yun",
   "repository": {
     "type": "git",
-    "url": "git+https://github.com/pyun/claude-switcher.git",
+    "url": "git+https://github.com/PVUL/claude-switcher.git",
     "directory": "pi-extension"
   },
   "keywords": [
@@ -30,10 +30,12 @@
     "check": "tsc --noEmit",
     "test": "node test/layout-check.mjs"
   },
+  "dependencies": {
+    "@mariozechner/pi-tui": "^0.73.1"
+  },
   "devDependencies": {
     "@mariozechner/pi-ai": "^0.73.1",
     "@mariozechner/pi-coding-agent": "^0.73.1",
-    "@mariozechner/pi-tui": "^0.73.1",
     "@types/node": "^22.0.0",
     "typescript": "^5.6.0"
   }
