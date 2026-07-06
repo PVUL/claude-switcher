@@ -8,7 +8,10 @@
  *  3. Account pinning — pin this session to one account so every bridge
  *     child-exec stays on it (via CLAUDE_SWITCHER_PIN), even if the symlink is
  *     flipped elsewhere; otherwise the bridge's underlying Claude Code sessions
- *     scatter across profile dirs and resume breaks.
+ *     scatter across profile dirs and resume breaks. The account is *recorded
+ *     into the session* the first time it's pinned and restored by name on
+ *     every later turn/resume — so a resumed conversation keeps its own account
+ *     instead of following whatever the symlink points at now.
  *
  * Shows the active Claude account on the RIGHT side of the footer's path row
  * (row 1), above the model — so the status section stays 2 rows tall:
@@ -70,6 +73,10 @@ interface AccountSnapshot {
 let snapshot: AccountSnapshot | null = null;
 let fetchInFlight = false;
 let requestRender: (() => void) | null = null;
+// The account this session is pinned to. Drives both the footer/usage display
+// and the CLAUDE_SWITCHER_PIN env, so the shown account matches the one the
+// bridge actually runs on. Null until the first pin resolves.
+let pinnedAccountName: string | null = null;
 
 interface RawUsageEntry {
 	active?: boolean;
@@ -85,13 +92,19 @@ function refreshUsage(): void {
 		if (err) return; // best-effort: leave the last snapshot in place
 		try {
 			const entries = JSON.parse(stdout) as RawUsageEntry[];
-			const active = Array.isArray(entries) ? entries.find((e) => e.active) : undefined;
-			if (active?.name) {
+			const list = Array.isArray(entries) ? entries : [];
+			// Show the account this session is pinned to, not whatever the global
+			// symlink points at — otherwise a resumed conversation would display a
+			// different account than it runs on. Fall back to the active account when
+			// there's no pin yet (or it isn't present on this machine).
+			const entry =
+				(pinnedAccountName && list.find((e) => e.name === pinnedAccountName)) || list.find((e) => e.active);
+			if (entry?.name) {
 				snapshot = {
-					name: active.name,
+					name: entry.name,
 					utilization:
-						typeof active.fiveHour?.utilization === "number" ? active.fiveHour.utilization : undefined,
-					resetsAt: active.fiveHour?.resetsAt,
+						typeof entry.fiveHour?.utilization === "number" ? entry.fiveHour.utilization : undefined,
+					resetsAt: entry.fiveHour?.resetsAt,
 				};
 				requestRender?.();
 			}
@@ -108,6 +121,8 @@ interface Account {
 	active: boolean;
 	email?: string;
 	authenticated?: boolean;
+	/** Config directory, possibly `~`-prefixed (e.g. `~/.claude-work`). */
+	path?: string;
 }
 
 let accountsCache: { at: number; accounts: Account[] } | null = null;
@@ -141,23 +156,107 @@ function resolveActiveConfigDir(): string {
 	}
 }
 
-/**
- * Pin the running pi process — and every claude-switcher-exec it spawns for the
- * bridge — to the currently-active account for the life of this session.
- * claude-switcher-exec honors CLAUDE_SWITCHER_PIN over the live symlink, so all
- * turns of one conversation stay on one account even if the symlink is flipped
- * elsewhere mid-conversation. Without this the underlying Claude Code sessions
- * land in different profile dirs and resume/rebuild breaks. CLAUDE_CONFIG_DIR
- * is set to the same dir for anything that reads it directly.
- *
- * Captured once per session (on session_start / an explicit switch), never
- * per-turn — re-reading the symlink every turn would reintroduce the very
- * thrash this prevents.
- */
-function pinActiveAccount(): void {
-	const dir = resolveActiveConfigDir();
+// Custom session entry that records which account a conversation belongs to.
+// Persisted (not sent to the LLM) so it survives reloads and cross-machine
+// resumes; we store the account *name* (portable) rather than an absolute dir.
+const PIN_ENTRY_TYPE = "claude-switcher/pinned-account";
+interface PinData {
+	account: string;
+}
+
+/** The account name this session recorded for itself (latest wins), if any. */
+function recordedAccount(ctx: ExtensionContext): string | undefined {
+	const entries = ctx.sessionManager.getEntries();
+	for (let i = entries.length - 1; i >= 0; i--) {
+		const e = entries[i] as { type?: string; customType?: string; data?: PinData };
+		if (e.type === "custom" && e.customType === PIN_ENTRY_TYPE && e.data?.account) return e.data.account;
+	}
+	return undefined;
+}
+
+function expandHome(p: string): string {
+	const home = process.env.CLAUDE_SWITCHER_HOME || homedir();
+	if (p === "~") return home;
+	if (p.startsWith("~/")) return join(home, p.slice(2));
+	return p;
+}
+
+/** Resolve an account name to its config dir on THIS machine, or undefined. */
+async function dirForAccount(name: string): Promise<string | undefined> {
+	const acc = (await listAccounts()).find((a) => a.name === name);
+	return acc?.path ? expandHome(acc.path) : undefined;
+}
+
+/** Point this pi process — and every exec it spawns — at `dir`. */
+function applyPin(dir: string): void {
 	process.env.CLAUDE_SWITCHER_PIN = dir;
 	process.env.CLAUDE_CONFIG_DIR = dir;
+}
+
+/**
+ * Pin the session to ONE account for the whole conversation.
+ *
+ * A conversation records its account the first time it is pinned; every later
+ * turn — and every resume, even on another machine or after the global symlink
+ * was flipped elsewhere — restores THAT account by name rather than following
+ * the live symlink. Following the symlink on resume was the bug: a resumed
+ * conversation would drift onto whatever account happened to be active,
+ * scattering the bridge's underlying Claude Code sessions across profile dirs
+ * and breaking resume.
+ *
+ * Only a brand-new conversation (nothing recorded) captures the currently
+ * active account and records it. An explicit /claude-switcher switch re-records
+ * via `recordPin`.
+ */
+async function restoreOrCapturePin(pi: ExtensionAPI, ctx: ExtensionContext): Promise<void> {
+	try {
+		const recorded = recordedAccount(ctx);
+		if (recorded) {
+			const dir = await dirForAccount(recorded);
+			if (dir) {
+				pinnedAccountName = recorded;
+				applyPin(dir);
+				return;
+			}
+			// Recorded account isn't present on this machine — fall through so the
+			// session still runs, but DON'T overwrite the record: a later resume on
+			// the right machine must still restore the real owner.
+		}
+		const active = (await listAccounts()).find((a) => a.active);
+		if (active?.path) {
+			pinnedAccountName = active.name;
+			applyPin(expandHome(active.path));
+			if (!recorded) pi.appendEntry<PinData>(PIN_ENTRY_TYPE, { account: active.name });
+			return;
+		}
+		// No account info at all — follow the live symlink as a last resort.
+		applyPin(resolveActiveConfigDir());
+	} catch {
+		applyPin(resolveActiveConfigDir());
+	}
+}
+
+/** Record + apply a specific account (an explicit /claude-switcher switch). */
+async function recordPin(pi: ExtensionAPI, name: string): Promise<void> {
+	pinnedAccountName = name;
+	applyPin((await dirForAccount(name)) ?? resolveActiveConfigDir());
+	pi.appendEntry<PinData>(PIN_ENTRY_TYPE, { account: name });
+}
+
+// Coalesces the session_start + before_agent_start calls that fire close
+// together so we don't resolve (and record) the pin twice. `force` re-resolves
+// even when a (possibly stale) pin is already set, which session_start needs
+// because the session identity may have just changed; before_agent_start only
+// fills an unset pin.
+let pinning: Promise<void> | null = null;
+function schedulePin(pi: ExtensionAPI, ctx: ExtensionContext, force: boolean): Promise<void> {
+	if (!force && process.env.CLAUDE_SWITCHER_PIN) return Promise.resolve();
+	if (!pinning) {
+		pinning = restoreOrCapturePin(pi, ctx).finally(() => {
+			pinning = null;
+		});
+	}
+	return pinning;
 }
 
 // --- Formatting helpers ----------------------------------------------------
@@ -417,18 +516,21 @@ export default function (pi: ExtensionAPI) {
 		}
 	};
 
-	// Re-pin on every session_start: startup/new/resume all want the active
-	// account captured, and a switch's reload re-fires this with the new target.
-	pi.on("session_start", (_event, ctx) => {
-		pinActiveAccount();
+	// Re-resolve the pin on every session_start (startup/new/resume/reload/fork):
+	// restore the account this session recorded for itself, or capture+record the
+	// active one if it's brand new. `force` because the session identity may have
+	// just changed, making any inherited pin stale.
+	pi.on("session_start", async (_event, ctx) => {
 		ensureFooter(ctx);
+		await schedulePin(pi, ctx, true);
 	});
-	// before_agent_start fires per turn; only pin here as a set-once fallback for
-	// reload paths that don't re-fire session_start — never overwrite an existing
-	// pin, or a mid-conversation symlink flip would scatter the bridge sessions.
-	pi.on("before_agent_start", (_event, ctx) => {
-		if (!process.env.CLAUDE_SWITCHER_PIN) pinActiveAccount();
+	// before_agent_start fires per turn; only fill an unset pin here as a fallback
+	// for reload paths that don't re-fire session_start — never re-resolve when a
+	// pin already exists, or a mid-conversation symlink flip would scatter the
+	// bridge sessions.
+	pi.on("before_agent_start", async (_event, ctx) => {
 		ensureFooter(ctx);
+		await schedulePin(pi, ctx, false);
 	});
 
 	pi.on("session_shutdown", () => {
@@ -488,11 +590,11 @@ export default function (pi: ExtensionAPI) {
 				return;
 			}
 
-			// Re-pin the running process to the new profile so the bridge's session
-			// JSONL lands in the right account dir on the next turn. The reload below
-			// re-fires session_start, which re-affirms this pin.
-			pinActiveAccount();
+			// Record the new account on THIS session and re-pin the running process so
+			// the bridge's session JSONL lands in the right dir on the next turn. The
+			// reload below re-fires session_start, which restores this record.
 			accountsCache = null;
+			await recordPin(pi, name);
 			snapshot = null; // force the footer to refetch usage for the new account
 
 			try {

@@ -28,14 +28,19 @@ Three features:
    - `/claude-switcher` with no argument opens a picker (the active account is marked).
    - `/claude-switcher takeyoung` switches directly; account names tab-complete.
 
-3. **Account pinning** — on session start the extension captures the active
-   account and exports `CLAUDE_SWITCHER_PIN` for the pi process, so every
-   `claude-switcher-exec` the bridge spawns stays on that one account for the
-   whole conversation. Without it, an account switch elsewhere (or a machine
-   whose symlink is repointed underneath a long session) would scatter the
-   bridge's underlying Claude Code sessions across profile dirs and break
-   resume. An explicit `/claude-switcher` re-pins to the new account; the pin is
-   captured once per session, never per turn.
+3. **Account pinning** — a conversation is bound to one account for its whole
+   life. The first time it's pinned the extension **records the account name
+   into the session** and exports `CLAUDE_SWITCHER_PIN` for the pi process, so
+   every `claude-switcher-exec` the bridge spawns stays on that account. On
+   every later turn — and on **resume**, even in a fresh process, on another
+   machine, or after the global symlink was flipped elsewhere — the pin is
+   restored *by name* from the session record rather than re-read from the live
+   symlink. Without this a resumed conversation would drift onto whatever account
+   happened to be active, scattering the bridge's underlying Claude Code sessions
+   across profile dirs and breaking resume. Only a brand-new conversation
+   captures the currently-active account; an explicit `/claude-switcher` records
+   and re-pins to the new one. The account name is portable, so a session synced
+   to another machine resolves to that machine's matching profile dir.
 
 ## Requirements
 

@@ -222,7 +222,10 @@ impl Manager {
 
     /// Scan the home directory for un-managed Claude config directories
     /// (`~/.claude` and `~/.claude-*`, excluding the active symlink). Returns
-    /// suggested `(name, path)` pairs, skipping anything already managed.
+    /// suggested `(name, path)` pairs, skipping anything already managed and
+    /// any directory with no account behind it (an un-authenticated `~/.claude`
+    /// left over from a bare install "means nothing" — adopting it would create
+    /// a meaningless account-less profile).
     pub fn discover_candidates(&self) -> Vec<(String, PathBuf)> {
         let managed: Vec<PathBuf> = self
             .meta
@@ -254,6 +257,11 @@ impl Manager {
             }
             let name = derive_name(&file_name);
             if validate_name(&name).is_err() || taken.contains(&name) {
+                continue;
+            }
+            // Only surface directories that actually back an account. A dir with
+            // no sign-in state is noise, not a profile worth adopting.
+            if !detect::inspect(&path, &self.paths.home).authenticated {
                 continue;
             }
             out.push((name, path));
@@ -416,5 +424,49 @@ mod tests {
         assert_eq!(derive_name(".claude"), "default");
         assert_eq!(derive_name(".claude-work"), "work");
         assert_eq!(derive_name(".claude-takeyoung"), "takeyoung");
+    }
+
+    #[test]
+    fn discovery_skips_account_less_dirs() {
+        let home = tempfile::tempdir().unwrap();
+        let config = tempfile::tempdir().unwrap();
+
+        // A bare ~/.claude with no sign-in state: adopting it would create the
+        // meaningless account-less "default" profile we want to avoid.
+        std::fs::create_dir(home.path().join(".claude")).unwrap();
+
+        // A real, signed-in profile alongside it.
+        let work = home.path().join(".claude-work");
+        std::fs::create_dir(&work).unwrap();
+        std::fs::write(
+            work.join(".claude.json"),
+            r#"{"oauthAccount":{"emailAddress":"paul@nhost.io"}}"#,
+        )
+        .unwrap();
+
+        let paths = Paths::with_roots(home.path(), config.path());
+        let mgr = Manager::load(paths).unwrap();
+        let names: Vec<String> = mgr.discover_candidates().into_iter().map(|(n, _)| n).collect();
+        assert_eq!(names, vec!["work".to_string()]);
+    }
+
+    #[test]
+    fn discovery_keeps_default_signed_in_via_home_state() {
+        let home = tempfile::tempdir().unwrap();
+        let config = tempfile::tempdir().unwrap();
+
+        // The default profile keeps its login state at ~/.claude.json, beside
+        // the ~/.claude directory rather than inside it.
+        std::fs::create_dir(home.path().join(".claude")).unwrap();
+        std::fs::write(
+            home.path().join(".claude.json"),
+            r#"{"oauthAccount":{"emailAddress":"paul@nhost.io"}}"#,
+        )
+        .unwrap();
+
+        let paths = Paths::with_roots(home.path(), config.path());
+        let mgr = Manager::load(paths).unwrap();
+        let names: Vec<String> = mgr.discover_candidates().into_iter().map(|(n, _)| n).collect();
+        assert_eq!(names, vec!["default".to_string()]);
     }
 }
