@@ -9,12 +9,36 @@
 # switching accounts would not switch the actual login. Resolving to the real
 # per-profile directory gives each account its own token.
 #
+# Pinning (CLAUDE_SWITCHER_PIN):
+#   Normally each exec re-reads the live symlink, so it always follows the
+#   currently-active account. That is wrong for a long-lived conversation whose
+#   turns must all use ONE account: a tool like the pi claude-bridge spawns this
+#   wrapper once per turn, so a mid-conversation account switch (or a machine
+#   where the symlink is repointed underneath it) would scatter the underlying
+#   Claude Code sessions across profile dirs and break resume.
+#
+#   Set CLAUDE_SWITCHER_PIN to a *resolved* profile directory (e.g.
+#   ~/.claude-work, not the ~/.claude-switcher symlink) to pin this invocation
+#   to that account regardless of what the symlink currently points at. The pin
+#   wins only when it names an existing directory; otherwise we warn and fall
+#   back to following the active symlink.
+#
 # Most people alias `claude` to this. It also serves tools that take an
 # executable path (e.g. pi-claude-bridge's pathToClaudeCodeExecutable).
 #
 # Usage:
 #   claude-switcher-exec [any claude args...]
-link="$HOME/.claude-switcher"
+
+if [ -n "${CLAUDE_SWITCHER_PIN:-}" ]; then
+	if [ -d "$CLAUDE_SWITCHER_PIN" ]; then
+		export CLAUDE_CONFIG_DIR="$CLAUDE_SWITCHER_PIN"
+		exec claude "$@"
+	fi
+	printf 'claude-switcher-exec: CLAUDE_SWITCHER_PIN=%s is not a directory; following active symlink\n' \
+		"$CLAUDE_SWITCHER_PIN" >&2
+fi
+
+link="${CLAUDE_SWITCHER_HOME:-$HOME}/.claude-switcher"
 target="$(readlink "$link" 2>/dev/null || true)"
 [ -n "$target" ] || target="$link"
 export CLAUDE_CONFIG_DIR="$target"

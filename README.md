@@ -103,6 +103,29 @@ claude                               # already uses the 'work' account — same 
 A switch made inside the TUI propagates too (the wrapper re-syncs after the TUI
 exits). No files are copied and each profile keeps its own Keychain token slot.
 
+## Pinning an account for a long-lived session
+
+`claude-switcher-exec` normally re-reads the symlink on **every** launch, so it
+always follows the currently-active account. That is exactly wrong for a
+long-running conversation whose turns must all stay on one account. Tools like
+the pi claude-bridge spawn the wrapper once per turn; if the active account
+changes mid-conversation (a switch elsewhere, or a machine whose symlink is
+repointed underneath it), successive turns land in different profile dirs and
+the underlying Claude Code sessions scatter — breaking resume.
+
+Set `CLAUDE_SWITCHER_PIN` to a **resolved** profile directory to pin an
+invocation to that account regardless of the symlink:
+
+```sh
+CLAUDE_SWITCHER_PIN="$HOME/.claude-work" claude-switcher-exec   # this run uses 'work', period
+```
+
+The pin must name an existing directory (and be the resolved profile path, not
+the `~/.claude-switcher` symlink — same Keychain-hashing reason as above); if it
+doesn't, the wrapper warns and falls back to following the active symlink. A
+harness can capture the active profile once at session start and export the pin
+for every child launch, so the whole conversation stays on one account.
+
 ## Usage
 
 ```sh
