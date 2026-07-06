@@ -42,6 +42,13 @@ Three features:
    and re-pins to the new one. The account name is portable, so a session synced
    to another machine resolves to that machine's matching profile dir.
 
+   Because the pin is exported to the pi process, `claude-switcher` itself
+   reports it: `current`, `list`, and `usage` (which the footer and the agent's
+   own introspection call) show the **pinned** account as active, not the global
+   symlink target. So asking the agent "which account are you on?" answers with
+   the account the session is bound to, even after the symlink is flipped in
+   another window.
+
 ## Requirements
 
 - [`claude-switcher`](../) installed and on `PATH` (or at `~/.local/bin`,

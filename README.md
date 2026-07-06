@@ -126,6 +126,22 @@ doesn't, the wrapper warns and falls back to following the active symlink. A
 harness can capture the active profile once at session start and export the pin
 for every child launch, so the whole conversation stays on one account.
 
+The read-only reporting commands honor the pin too: with `CLAUDE_SWITCHER_PIN`
+set to a managed profile directory, `claude-switcher current`, `list`, and
+`usage` report **that** account as active rather than the global symlink target.
+So a pinned session (and anything it asks, like an agent introspecting "which
+account am I on") sees the account it actually runs on, even after the symlink
+is flipped elsewhere. Switching, the TUI, and the symlink itself are unaffected
+— the pin only shifts what a pinned session *reports*, never the global state.
+
+The read-only reporting commands honor the pin too: with `CLAUDE_SWITCHER_PIN`
+set to a managed profile directory, `claude-switcher current`, `list`, and
+`usage` report **that** account as active rather than the global symlink target.
+So a pinned session (and anything it asks, like an agent introspecting "which
+account am I on") sees the account it actually runs on, even after the symlink
+is flipped elsewhere. Switching, the TUI, and the symlink itself are unaffected
+— the pin only shifts what a pinned session *reports*, never the global state.
+
 ## Usage
 
 ```sh

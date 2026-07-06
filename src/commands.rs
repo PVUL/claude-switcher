@@ -46,7 +46,7 @@ pub fn run(cmd: Command, mgr: &mut Manager) -> Result<()> {
             mgr.rename(&old, &new)?;
             println!("Renamed '{old}' to '{new}'.");
         }
-        Command::Current => match mgr.active() {
+        Command::Current => match mgr.profiles_reported().into_iter().find(|p| p.active) {
             Some(p) => println!("{}", describe(&p)),
             None => println!("(no active profile)"),
         },
@@ -122,7 +122,9 @@ fn derive_default_name(path: &std::path::Path) -> String {
 }
 
 fn list(mgr: &Manager, json: bool) -> Result<()> {
-    let profiles = mgr.profiles();
+    // Reported (pin-aware): in a session pinned via CLAUDE_SWITCHER_PIN, mark the
+    // pinned account active so the listing matches what the session runs on.
+    let profiles = mgr.profiles_reported();
     if json {
         let stdout = std::io::stdout();
         let mut w = stdout.lock();
@@ -151,7 +153,12 @@ fn list(mgr: &Manager, json: bool) -> Result<()> {
 fn usage(mgr: &Manager, json: bool) -> Result<()> {
     let home = mgr.paths().home.clone();
     let link = mgr.paths().active_link();
-    let profiles = mgr.profiles();
+    // Pin-aware for the displayed active marker...
+    let profiles = mgr.profiles_reported();
+    // ...but the symlink-keyed Keychain fallback belongs to the *real* symlink
+    // target, which a pin does not move — so key `active_link` off that, not the
+    // possibly-pinned display active.
+    let symlink_active = mgr.symlink_active_name();
     if profiles.is_empty() {
         println!("No profiles yet.");
         return Ok(());
@@ -159,7 +166,8 @@ fn usage(mgr: &Manager, json: bool) -> Result<()> {
 
     let mut json_items: Vec<serde_json::Value> = Vec::new();
     for p in &profiles {
-        let active_link = if p.active { Some(link.as_path()) } else { None };
+        let is_symlink_active = symlink_active.as_deref() == Some(p.name.as_str());
+        let active_link = if is_symlink_active { Some(link.as_path()) } else { None };
         let usage = if p.exists {
             crate::usage::fetch(&p.path, &home, active_link)
         } else {

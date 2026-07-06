@@ -77,12 +77,27 @@ impl Manager {
             .map(|p| p.name.clone())
     }
 
-    /// Build the enriched, display-ready list of profiles.
+    /// Build the enriched, display-ready list of profiles, tracking the real
+    /// symlink target as the active one.
     ///
     /// Ordered for display: the active profile first, then the rest by most
     /// recently used, with never-used profiles at the bottom.
     pub fn profiles(&self) -> Vec<Profile> {
-        let active = self.meta.active.as_deref();
+        self.profiles_marking(self.meta.active.as_deref())
+    }
+
+    /// Like [`profiles`](Self::profiles), but the `active` flag (and the
+    /// active-first ordering) follows `CLAUDE_SWITCHER_PIN` when the session has
+    /// pinned itself to an account. Read-only reporting (`current`, `list`,
+    /// `usage`) uses this so it reflects the account the pinned session actually
+    /// runs on instead of the global symlink it deliberately ignores. Mutating
+    /// operations and the interactive TUI keep using [`profiles`](Self::profiles),
+    /// which always tracks the real symlink.
+    pub fn profiles_reported(&self) -> Vec<Profile> {
+        self.profiles_marking(self.reporting_active_name().as_deref())
+    }
+
+    fn profiles_marking(&self, active: Option<&str>) -> Vec<Profile> {
         let mut profiles: Vec<Profile> = self
             .meta
             .profiles
@@ -130,6 +145,42 @@ impl Manager {
 
     pub fn active(&self) -> Option<Profile> {
         self.profiles().into_iter().find(|p| p.active)
+    }
+
+    /// The name read-only commands should report as active: the session's pin
+    /// (via `CLAUDE_SWITCHER_PIN`) when it names a managed profile, else the real
+    /// symlink target.
+    pub fn reporting_active_name(&self) -> Option<String> {
+        self.pinned_name().or_else(|| self.meta.active.clone())
+    }
+
+    /// The real symlink target's profile name, ignoring any pin. `usage` needs
+    /// this to key the active account's legacy symlink-keyed Keychain slot even
+    /// when a pin shifts the *displayed* active profile elsewhere.
+    pub fn symlink_active_name(&self) -> Option<String> {
+        self.meta.active.clone()
+    }
+
+    /// The profile `CLAUDE_SWITCHER_PIN` binds this session to, if that env names
+    /// one of our managed directories; otherwise `None` (unset, missing, or
+    /// pointing outside our profiles — reporting then falls back to the symlink).
+    pub fn pinned_name(&self) -> Option<String> {
+        let pin = std::env::var_os("CLAUDE_SWITCHER_PIN")?;
+        self.profile_name_for_dir(Path::new(&pin))
+    }
+
+    /// Match a resolved config directory against our managed profiles by
+    /// canonical path, returning the profile name if one owns that directory.
+    fn profile_name_for_dir(&self, dir: &Path) -> Option<String> {
+        if !dir.is_dir() {
+            return None;
+        }
+        let target = canonical(dir);
+        self.meta
+            .profiles
+            .iter()
+            .find(|m| canonical(&self.paths.expand(&m.path)) == target)
+            .map(|m| m.name.clone())
     }
 
     /// Add a new profile. Creates the directory if it does not exist. The first
@@ -448,6 +499,43 @@ mod tests {
         let mgr = Manager::load(paths).unwrap();
         let names: Vec<String> = mgr.discover_candidates().into_iter().map(|(n, _)| n).collect();
         assert_eq!(names, vec!["work".to_string()]);
+    }
+
+    #[test]
+    fn pin_shifts_the_reported_active_profile() {
+        let home = tempfile::tempdir().unwrap();
+        let config = tempfile::tempdir().unwrap();
+
+        let paths = Paths::with_roots(home.path(), config.path());
+        let mut mgr = Manager::load(paths).unwrap();
+        mgr.add("work", None).unwrap(); // first add auto-activates
+        mgr.add("personal", None).unwrap();
+
+        // Symlink points at `work`; reporting matches it with no pin set.
+        assert_eq!(mgr.symlink_active_name().as_deref(), Some("work"));
+        assert_eq!(mgr.reporting_active_name().as_deref(), Some("work"));
+        let active_name = |p: &[Profile]| p.iter().find(|p| p.active).map(|p| p.name.clone());
+        assert_eq!(active_name(&mgr.profiles_reported()).as_deref(), Some("work"));
+
+        // A session pinned to `personal` reports personal as active, even though
+        // the symlink still points at work. profiles() (TUI/mutations) is unmoved.
+        let personal_dir = home.path().join(".claude-personal");
+        std::env::set_var("CLAUDE_SWITCHER_PIN", &personal_dir);
+        assert_eq!(mgr.pinned_name().as_deref(), Some("personal"));
+        assert_eq!(mgr.reporting_active_name().as_deref(), Some("personal"));
+        assert_eq!(active_name(&mgr.profiles_reported()).as_deref(), Some("personal"));
+        assert_eq!(active_name(&mgr.profiles()).as_deref(), Some("work"));
+        // The symlink target is unchanged, so usage still keys its slot to work.
+        assert_eq!(mgr.symlink_active_name().as_deref(), Some("work"));
+
+        // A pin at a real dir we don't manage is ignored; reporting falls back.
+        let unmanaged = home.path().join(".claude-unmanaged");
+        std::fs::create_dir(&unmanaged).unwrap();
+        std::env::set_var("CLAUDE_SWITCHER_PIN", &unmanaged);
+        assert_eq!(mgr.pinned_name(), None);
+        assert_eq!(mgr.reporting_active_name().as_deref(), Some("work"));
+
+        std::env::remove_var("CLAUDE_SWITCHER_PIN");
     }
 
     #[test]
