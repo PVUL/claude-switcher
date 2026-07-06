@@ -15,7 +15,9 @@
 //!     token as a bearer and the `anthropic-beta: oauth-2025-04-20` header.
 
 use std::collections::HashMap;
-use std::path::{Path, PathBuf};
+use std::path::Path;
+#[cfg(target_os = "macos")]
+use std::path::PathBuf;
 use std::process::Command;
 
 use chrono::{DateTime, Duration, DurationRound, Local, Utc};
@@ -227,6 +229,7 @@ fn token_from_file(dir: &Path) -> Option<Cred> {
 /// The profile's own account-specific Keychain service names (keyed by its
 /// directory, both resolved and unresolved). Deliberately excludes the shared
 /// active-symlink slot, which is not account-specific.
+#[cfg(target_os = "macos")]
 fn own_keychain_services(profile_path: &Path, home: &Path) -> Vec<String> {
     let mut paths: Vec<PathBuf> = Vec::new();
     let resolved = std::fs::canonicalize(profile_path).unwrap_or_else(|_| profile_path.to_path_buf());
@@ -240,6 +243,7 @@ fn own_keychain_services(profile_path: &Path, home: &Path) -> Vec<String> {
     services
 }
 
+#[cfg(target_os = "macos")]
 fn service_name(path: &Path, home: &Path) -> String {
     if path == home.join(".claude") {
         "Claude Code-credentials".to_string()
@@ -249,6 +253,7 @@ fn service_name(path: &Path, home: &Path) -> String {
 }
 
 /// First 8 hex chars of `sha256(path)` — Claude Code's per-config-dir suffix.
+#[cfg(target_os = "macos")]
 fn config_hash(path: &Path) -> String {
     use sha2::{Digest, Sha256};
     let mut hasher = Sha256::new();
@@ -371,12 +376,14 @@ impl From<RawWindow> for Window {
 mod tests {
     use super::*;
 
+    #[cfg(target_os = "macos")]
     #[test]
     fn config_hash_matches_claude_code() {
         // Verified against a real Keychain entry created by Claude Code.
         assert_eq!(config_hash(Path::new("/Users/pyun/.claude-takeyoung")), "fd08061c");
     }
 
+    #[cfg(target_os = "macos")]
     #[test]
     fn default_dir_uses_plain_service_name() {
         let home = Path::new("/Users/pyun");
@@ -387,6 +394,7 @@ mod tests {
         );
     }
 
+    #[cfg(target_os = "macos")]
     #[test]
     fn own_services_exclude_the_shared_symlink_slot() {
         // The profile's own directory-keyed slot is included, but the shared
