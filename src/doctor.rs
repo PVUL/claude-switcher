@@ -92,8 +92,16 @@ fn walk(mgr: &mut Manager, mode: Mode, yes: bool) -> Result<bool> {
                 }
             }
         } else {
-            report(WARN, &format!("un-adopted Claude dir(s): {}", names.join(", ")));
-            healthy = false;
+            // The user said no. Remember it so the wizard stops re-offering these
+            // on every launch; they can still adopt one by hand later.
+            let paths: Vec<_> = candidates.iter().map(|(_, p)| p.clone()).collect();
+            if mgr.ignore_candidates(&paths).is_ok() {
+                report(OK, &format!("skipping {} (won't ask again)", names.join(", ")));
+                report(OK, "    to adopt one later: claude-switcher adopt <name> --path <dir>");
+            } else {
+                report(WARN, &format!("un-adopted Claude dir(s): {}", names.join(", ")));
+                healthy = false;
+            }
         }
     }
 

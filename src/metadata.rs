@@ -63,6 +63,11 @@ pub struct Metadata {
     pub active: Option<String>,
     #[serde(default)]
     pub profiles: Vec<ProfileMeta>,
+    /// Directories the user explicitly declined to adopt, in portable
+    /// `~`-relative form. Discovery skips these so the setup wizard stops
+    /// re-offering a directory the user has already said no to.
+    #[serde(default, skip_serializing_if = "Vec::is_empty")]
+    pub ignored: Vec<String>,
     #[serde(default)]
     pub settings: Settings,
     /// Last usage snapshot, reused while still within the poll interval.
@@ -131,6 +136,7 @@ mod tests {
                 path: "~/.claude-work".into(),
                 email: Some("paul@nhost.io".into()),
             }],
+            ignored: vec!["~/.claude".into()],
             settings: Settings {
                 auto_refresh: true,
                 poll_interval_secs: 300,

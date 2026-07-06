@@ -242,6 +242,9 @@ impl Manager {
             email: None,
         });
         self.refresh_email(name);
+        // Adopting a directory clears any prior "don't offer this" mark for it.
+        let stored = self.paths.contract(path);
+        self.meta.ignored.retain(|p| p != &stored);
 
         let first = self.meta.profiles.len() == 1;
         self.save()?;
@@ -284,6 +287,13 @@ impl Manager {
             .iter()
             .map(|m| canonical(&self.paths.expand(&m.path)))
             .collect();
+        // Directories the user already declined to adopt — never re-offer them.
+        let ignored: Vec<PathBuf> = self
+            .meta
+            .ignored
+            .iter()
+            .map(|p| canonical(&self.paths.expand(p)))
+            .collect();
         let taken: Vec<String> = self.meta.profiles.iter().map(|p| p.name.clone()).collect();
 
         let Ok(entries) = fs::read_dir(&self.paths.home) else {
@@ -303,7 +313,8 @@ impl Manager {
             if path.is_symlink() || !path.is_dir() {
                 continue;
             }
-            if managed.contains(&canonical(&path)) {
+            let canon = canonical(&path);
+            if managed.contains(&canon) || ignored.contains(&canon) {
                 continue;
             }
             let name = derive_name(&file_name);
@@ -319,6 +330,20 @@ impl Manager {
         }
         out.sort_by(|a, b| a.0.cmp(&b.0));
         out
+    }
+
+    /// Permanently stop offering the given directories for adoption: record them
+    /// (in portable `~`-relative form) so [`discover_candidates`](Self::discover_candidates)
+    /// — and thus the setup wizard and `adopt --scan` — skips them from now on.
+    /// Used when the user declines an adoption prompt so it is not asked again.
+    pub fn ignore_candidates(&mut self, paths: &[PathBuf]) -> Result<()> {
+        for path in paths {
+            let stored = self.paths.contract(path);
+            if !self.meta.ignored.contains(&stored) {
+                self.meta.ignored.push(stored);
+            }
+        }
+        self.save()
     }
 
     /// Import login/onboarding state for the special case of the default
@@ -499,6 +524,41 @@ mod tests {
         let mgr = Manager::load(paths).unwrap();
         let names: Vec<String> = mgr.discover_candidates().into_iter().map(|(n, _)| n).collect();
         assert_eq!(names, vec!["work".to_string()]);
+    }
+
+    #[test]
+    fn ignored_dirs_are_not_re_offered_and_adopt_clears_the_mark() {
+        let home = tempfile::tempdir().unwrap();
+        let config = tempfile::tempdir().unwrap();
+
+        // A signed-in ~/.claude the user doesn't want managed.
+        let default_dir = home.path().join(".claude");
+        std::fs::create_dir(&default_dir).unwrap();
+        std::fs::write(
+            default_dir.join(".claude.json"),
+            r#"{"oauthAccount":{"emailAddress":"stale@old.co"}}"#,
+        )
+        .unwrap();
+
+        let paths = Paths::with_roots(home.path(), config.path());
+        let mut mgr = Manager::load(paths).unwrap();
+
+        // It's offered at first.
+        assert_eq!(
+            mgr.discover_candidates().into_iter().map(|(n, _)| n).collect::<Vec<_>>(),
+            vec!["default".to_string()]
+        );
+
+        // Declining records it; it's no longer offered, across a reload.
+        mgr.ignore_candidates(std::slice::from_ref(&default_dir)).unwrap();
+        assert!(mgr.discover_candidates().is_empty());
+        let reloaded = Manager::load(Paths::with_roots(home.path(), config.path())).unwrap();
+        assert!(reloaded.discover_candidates().is_empty());
+
+        // Adopting it explicitly (by path) still works and clears the ignore mark.
+        let mut mgr = reloaded;
+        mgr.adopt("default", &default_dir, false).unwrap();
+        assert!(mgr.meta.ignored.is_empty());
     }
 
     #[test]

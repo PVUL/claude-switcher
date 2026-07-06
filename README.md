@@ -183,6 +183,11 @@ incomplete, and stays silent when everything is healthy. Non-interactive callers
 (pipes, the pi extension's `usage --json`) never trigger it; set
 `CLAUDE_SWITCHER_NO_WIZARD=1` to opt out entirely.
 
+Decline an adoption prompt and it **stays declined** — the directory is recorded
+as ignored so the wizard won't re-offer it on the next launch (useful for a bare
+`~/.claude` you never signed a real account into). You can still adopt it later
+by hand with `claude-switcher adopt <name> --path <dir>`, which clears the mark.
+
 A common headless case it names precisely: if `CLAUDE_CODE_OAUTH_TOKEN` is set
 to a coding-only `claude setup-token` (as on a server), Claude Code works but
 usage/sign-in display won't — that token lacks the `user:profile` scope, so
