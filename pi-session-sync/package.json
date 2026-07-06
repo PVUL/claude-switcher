@@ -1,0 +1,40 @@
+{
+  "name": "pi-session-sync",
+  "version": "0.1.0",
+  "description": "Pi extension that syncs pi's session transcripts across machines via a private git remote, driven by pi's session lifecycle.",
+  "type": "module",
+  "license": "MIT",
+  "author": "Paul Yun",
+  "repository": {
+    "type": "git",
+    "url": "git+https://github.com/PVUL/claude-switcher.git",
+    "directory": "pi-session-sync"
+  },
+  "keywords": [
+    "pi",
+    "pi-extension",
+    "claude",
+    "sessions",
+    "sync",
+    "git"
+  ],
+  "files": [
+    "index.ts",
+    "session-sync.sh",
+    "README.md"
+  ],
+  "pi": {
+    "extensions": [
+      "./index.ts"
+    ]
+  },
+  "scripts": {
+    "check": "tsc --noEmit",
+    "test": "sh test/engine-check.sh"
+  },
+  "devDependencies": {
+    "@mariozechner/pi-coding-agent": "^0.73.1",
+    "@types/node": "^22.0.0",
+    "typescript": "^5.6.0"
+  }
+}

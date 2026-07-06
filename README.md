@@ -327,18 +327,32 @@ Override locations (handy for testing or non-standard setups):
 - `CLAUDE_SWITCHER_CONFIG_DIR` — where `profiles.json` lives (default
   `~/.config/claude-switcher`).
 
-## Pi extension
+## Pi extensions
 
-This repo is a small monorepo: the Rust app lives at the root, and
-[`pi-extension/`](pi-extension) holds **pi-claude-switcher**, a
-[pi](https://github.com/badlogic/pi-mono) extension that surfaces the active
-account + usage in pi's footer and adds a `/claude-switcher [account]` command to change
-accounts without leaving your pi session. See
+This repo is a small monorepo: the Rust app lives at the root, plus two
+[pi](https://github.com/badlogic/pi-mono) extensions.
+
+[`pi-extension/`](pi-extension) holds **pi-claude-switcher** — surfaces the
+active account + usage in pi's footer, adds a `/claude-switcher [account]`
+command to change accounts without leaving your session, and pins each session
+to one account (via `CLAUDE_SWITCHER_PIN`) so the bridge doesn't scatter its
+underlying Claude Code sessions across profiles. See
 [`pi-extension/README.md`](pi-extension/README.md).
 
 ```sh
 pi install ./pi-extension      # from a checkout
 # or, once published:  pi install npm:pi-claude-switcher
+```
+
+[`pi-session-sync/`](pi-session-sync) holds **pi-session-sync** — keeps pi's
+session transcripts (`~/.pi/agent/sessions/`) in sync across machines through a
+private git remote, driven by pi's session lifecycle (pull on start, debounced
+push on each `agent_end`, flush on shutdown). See
+[`pi-session-sync/README.md`](pi-session-sync/README.md).
+
+```sh
+pi install ./pi-session-sync
+pi-session-sync/session-sync.sh init git@github.com:you/pi-sessions.git   # once per machine
 ```
 
 ## Development
