@@ -81,38 +81,25 @@ fn walk(mgr: &mut Manager, mode: Mode, yes: bool) -> Result<bool> {
     let candidates = mgr.discover_candidates();
     if !candidates.is_empty() {
         let names: Vec<String> = candidates.iter().map(|(n, _)| n.clone()).collect();
-        if yes
-            || confirm(
-                mode,
-                &format!("Adopt existing Claude dir(s): {}?", names.join(", ")),
-            )
-        {
+        if yes || confirm(mode, &format!("Adopt existing Claude dir(s): {}?", names.join(", "))) {
             for (name, path) in &candidates {
                 match mgr.adopt(name, path, false) {
-                    Ok(p) => report(mode, OK, &format!("adopted '{name}' ({})", p.raw_path)),
+                    Ok(p) => report(OK, &format!("adopted '{name}' ({})", p.raw_path)),
                     Err(e) => {
-                        report(mode, BAD, &format!("could not adopt '{name}': {e}"));
+                        report(BAD, &format!("could not adopt '{name}': {e}"));
                         healthy = false;
                     }
                 }
             }
         } else {
-            report(
-                mode,
-                WARN,
-                &format!("un-adopted Claude dir(s): {}", names.join(", ")),
-            );
+            report(WARN, &format!("un-adopted Claude dir(s): {}", names.join(", ")));
             healthy = false;
         }
     }
 
     let profiles = mgr.profiles();
     if profiles.is_empty() {
-        report(
-            mode,
-            WARN,
-            "no profiles yet — sign in with `claude`, then re-run",
-        );
+        report(WARN, "no profiles yet — sign in with `claude`, then re-run");
         return Ok(false);
     }
 
@@ -121,47 +108,31 @@ fn walk(mgr: &mut Manager, mode: Mode, yes: bool) -> Result<bool> {
         if profiles.len() == 1 {
             let name = profiles[0].name.clone();
             mgr.switch(&name)?;
-            report(mode, OK, &format!("activated the only profile: '{name}'"));
-        } else if let Some(name) = choose_profile(mode, &profiles, yes) {
+            report(OK, &format!("activated the only profile: '{name}'"));
+        } else if let Some(name) = choose_profile(&profiles, yes) {
             mgr.switch(&name)?;
-            report(mode, OK, &format!("activated '{name}'"));
+            report(OK, &format!("activated '{name}'"));
         } else {
-            report(
-                mode,
-                WARN,
-                "no active profile — pick one in the TUI (enter)",
-            );
+            report(WARN, "no active profile — pick one in the TUI (enter)");
             healthy = false;
         }
     } else if mode == Mode::Explicit {
         let active = mgr.active().expect("checked");
-        report(mode, OK, &format!("active profile: {}", label(&active)));
+        report(OK, &format!("active profile: {}", label(&active)));
     }
 
-    // 3. Sign-in status per profile.
-    let profiles = mgr.profiles();
-    for p in &profiles {
+    // 3. Sign-in status per profile (filesystem-only, so cheap on every launch).
+    for p in &mgr.profiles() {
         if !p.exists {
-            report(
-                mode,
-                BAD,
-                &format!("'{}' directory is missing ({})", p.name, p.raw_path),
-            );
+            report(BAD, &format!("'{}' directory is missing ({})", p.name, p.raw_path));
             healthy = false;
         } else if p.authenticated {
             if mode == Mode::Explicit {
-                report(mode, OK, &format!("'{}' is signed in", p.name));
+                report(OK, &format!("'{}' is signed in", p.name));
             }
         } else {
-            report(mode, WARN, &format!("'{}' is not signed in", p.name));
-            report(
-                mode,
-                WARN,
-                &format!(
-                    "    fix: claude-switcher switch {} && claude   (then /login)",
-                    p.name
-                ),
-            );
+            report(WARN, &format!("'{}' is not signed in", p.name));
+            report(WARN, &format!("    fix: claude-switcher switch {} && claude   (then /login)", p.name));
             healthy = false;
         }
     }
@@ -175,58 +146,11 @@ fn walk(mgr: &mut Manager, mode: Mode, yes: bool) -> Result<bool> {
             if active.exists {
                 let home = mgr.paths().home.clone();
                 let link = mgr.paths().active_link();
-                let active_link = Some(link.as_path());
-                if usage::fetch(&active.path, &home, active_link).is_some() {
-                    if mode == Mode::Explicit {
-                        report(mode, OK, "usage endpoint reachable for the active profile");
-                    }
+                if usage::fetch(&active.path, &home, Some(link.as_path())).is_some() {
+                    report(OK, "usage endpoint reachable for the active profile");
                 } else {
                     healthy = false;
-                    match usage::classify_env_token() {
-                        EnvToken::ScopeLimited => {
-                            report(
-                                mode,
-                                WARN,
-                                "usage unavailable: CLAUDE_CODE_OAUTH_TOKEN is a coding-only",
-                            );
-                            report(
-                                mode,
-                                WARN,
-                                "    setup-token (missing the user:profile scope). It runs Claude",
-                            );
-                            report(mode, WARN, "    fine, but usage/sign-in display needs a real interactive login:");
-                            report(
-                                mode,
-                                WARN,
-                                &format!(
-                                    "    claude-switcher switch {} && claude   (then /login)",
-                                    active.name
-                                ),
-                            );
-                        }
-                        EnvToken::Usable => {
-                            // Token works generally but this profile still had none.
-                            report(
-                                mode,
-                                WARN,
-                                "usage unavailable for the active profile (sign in with `claude`)",
-                            );
-                        }
-                        EnvToken::Unusable => {
-                            report(
-                                mode,
-                                WARN,
-                                "usage unavailable (token expired or network unreachable)",
-                            );
-                        }
-                        EnvToken::Absent => {
-                            report(
-                                mode,
-                                WARN,
-                                "usage unavailable (not signed in, token expired, or offline)",
-                            );
-                        }
-                    }
+                    diagnose_usage(&active.name);
                 }
             }
         }
@@ -240,14 +164,33 @@ fn walk(mgr: &mut Manager, mode: Mode, yes: bool) -> Result<bool> {
     Ok(healthy)
 }
 
-/// Ask the user to pick a profile to activate. Auto-picks nothing unless on a
-/// TTY; with `yes`, activates the most-recently-used.
-fn choose_profile(mode: Mode, profiles: &[Profile], yes: bool) -> Option<String> {
+/// Explain why usage came back unavailable for the active profile, naming the
+/// coding-only setup-token case precisely so a headless box knows what to do.
+fn diagnose_usage(active_name: &str) {
+    match usage::classify_env_token() {
+        EnvToken::ScopeLimited => {
+            report(WARN, "usage unavailable: CLAUDE_CODE_OAUTH_TOKEN is a coding-only");
+            report(WARN, "    setup-token (missing the user:profile scope). It runs Claude");
+            report(WARN, "    fine, but usage/sign-in display needs a real interactive login:");
+            report(WARN, &format!("    claude-switcher switch {active_name} && claude   (then /login)"));
+        }
+        EnvToken::Usable => {
+            report(WARN, "usage unavailable for the active profile (sign in with `claude`)");
+        }
+        EnvToken::Unusable => {
+            report(WARN, "usage unavailable (token expired or network unreachable)");
+        }
+        EnvToken::Absent => {
+            report(WARN, "usage unavailable (not signed in, token expired, or offline)");
+        }
+    }
+}
+
+/// Ask the user to pick a profile to activate. With `yes`, activates the
+/// most-recently-used; otherwise prompts, and gives up if there's no TTY.
+fn choose_profile(profiles: &[Profile], yes: bool) -> Option<String> {
     if yes {
         return profiles.first().map(|p| p.name.clone());
-    }
-    if mode == Mode::Launch && !io::stdin().is_terminal() {
-        return None;
     }
     if !io::stdin().is_terminal() {
         return None;
@@ -267,10 +210,10 @@ fn choose_profile(mode: Mode, profiles: &[Profile], yes: bool) -> Option<String>
 }
 
 /// A yes/no prompt. In `Launch` mode, defaults to yes for the safe adoptions so
-/// setup "just works"; falls back to yes when there's no TTY to ask on.
+/// setup "just works"; falls back to yes when there's no TTY to ask on (the fix
+/// is non-destructive).
 fn confirm(mode: Mode, question: &str) -> bool {
     if !io::stdin().is_terminal() {
-        // No one to ask: apply the safe fix (adoption is non-destructive).
         return true;
     }
     let default_yes = mode == Mode::Launch;
@@ -296,38 +239,15 @@ fn check_shell_integration(mgr: &Manager) {
             let set = std::path::PathBuf::from(&v);
             let target = std::fs::read_link(&link).unwrap_or_else(|_| link.clone());
             if set == link || set == target {
-                report(
-                    Mode::Explicit,
-                    OK,
-                    "CLAUDE_CONFIG_DIR follows the active profile",
-                );
+                report(OK, "CLAUDE_CONFIG_DIR follows the active profile");
             } else {
-                report(
-                    Mode::Explicit,
-                    WARN,
-                    &format!(
-                        "CLAUDE_CONFIG_DIR is set to {} (not the active profile)",
-                        set.display()
-                    ),
-                );
-                report(
-                    Mode::Explicit,
-                    WARN,
-                    "    consider: eval \"$(claude-switcher shellenv)\"",
-                );
+                report(WARN, &format!("CLAUDE_CONFIG_DIR is set to {} (not the active profile)", set.display()));
+                report(WARN, "    consider: eval \"$(claude-switcher shellenv)\"");
             }
         }
         None => {
-            report(
-                Mode::Explicit,
-                WARN,
-                "CLAUDE_CONFIG_DIR is not set — tools won't follow switches",
-            );
-            report(
-                Mode::Explicit,
-                WARN,
-                "    add to your shell profile: eval \"$(claude-switcher shellenv)\"",
-            );
+            report(WARN, "CLAUDE_CONFIG_DIR is not set — tools won't follow switches");
+            report(WARN, "    add to your shell profile: eval \"$(claude-switcher shellenv)\"");
         }
     }
 }
@@ -339,9 +259,7 @@ fn label(p: &Profile) -> String {
     }
 }
 
-/// Print a status line. In `Launch` mode we still print (so the wizard is
-/// visible), but the caller only reaches `walk` when there's something to do.
-fn report(_mode: Mode, sym: &str, msg: &str) {
+fn report(sym: &str, msg: &str) {
     println!("{sym} {msg}");
 }
 

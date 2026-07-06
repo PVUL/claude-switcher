@@ -201,10 +201,7 @@ pub fn classify_env_token() -> EnvToken {
         None => EnvToken::Unusable,
         Some(body) => match serde_json::from_slice::<serde_json::Value>(&body) {
             Ok(v) => {
-                let msg = v
-                    .pointer("/error/message")
-                    .and_then(|m| m.as_str())
-                    .unwrap_or("");
+                let msg = v.pointer("/error/message").and_then(|m| m.as_str()).unwrap_or("");
                 if !msg.is_empty() {
                     if msg.contains("scope") {
                         EnvToken::ScopeLimited
@@ -232,8 +229,7 @@ fn token_from_file(dir: &Path) -> Option<Cred> {
 /// active-symlink slot, which is not account-specific.
 fn own_keychain_services(profile_path: &Path, home: &Path) -> Vec<String> {
     let mut paths: Vec<PathBuf> = Vec::new();
-    let resolved =
-        std::fs::canonicalize(profile_path).unwrap_or_else(|_| profile_path.to_path_buf());
+    let resolved = std::fs::canonicalize(profile_path).unwrap_or_else(|_| profile_path.to_path_buf());
     paths.push(resolved.clone());
     if resolved != profile_path {
         paths.push(profile_path.to_path_buf());
@@ -258,10 +254,7 @@ fn config_hash(path: &Path) -> String {
     let mut hasher = Sha256::new();
     hasher.update(path.to_string_lossy().as_bytes());
     let digest = hasher.finalize();
-    format!(
-        "{:02x}{:02x}{:02x}{:02x}",
-        digest[0], digest[1], digest[2], digest[3]
-    )
+    format!("{:02x}{:02x}{:02x}{:02x}", digest[0], digest[1], digest[2], digest[3])
 }
 
 #[cfg(target_os = "macos")]
@@ -283,10 +276,7 @@ fn parse_creds(text: &str) -> Option<Cred> {
     let obj = value.get("claudeAiOauth").unwrap_or(&value);
     let access_token = obj.get("accessToken")?.as_str()?.to_string();
     let expires_at = obj.get("expiresAt").and_then(|v| v.as_i64());
-    Some(Cred {
-        access_token,
-        expires_at,
-    })
+    Some(Cred { access_token, expires_at })
 }
 
 // ---- API call -------------------------------------------------------------
@@ -384,25 +374,16 @@ mod tests {
     #[test]
     fn config_hash_matches_claude_code() {
         // Verified against a real Keychain entry created by Claude Code.
-        assert_eq!(
-            config_hash(Path::new("/Users/pyun/.claude-takeyoung")),
-            "fd08061c"
-        );
+        assert_eq!(config_hash(Path::new("/Users/pyun/.claude-takeyoung")), "fd08061c");
     }
 
     #[test]
     fn default_dir_uses_plain_service_name() {
         let home = Path::new("/Users/pyun");
-        assert_eq!(
-            service_name(&home.join(".claude"), home),
-            "Claude Code-credentials"
-        );
+        assert_eq!(service_name(&home.join(".claude"), home), "Claude Code-credentials");
         assert_eq!(
             service_name(&home.join(".claude-work"), home),
-            format!(
-                "Claude Code-credentials-{}",
-                config_hash(&home.join(".claude-work"))
-            )
+            format!("Claude Code-credentials-{}", config_hash(&home.join(".claude-work")))
         );
     }
 

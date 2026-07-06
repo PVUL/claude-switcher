@@ -43,11 +43,7 @@ pub fn run(manager: &mut Manager) -> Result<()> {
 /// Size the inline viewport to the content, capped so it never dominates the
 /// terminal. The list scrolls if there are more profiles than fit.
 fn viewport_height(profiles: usize, compact: bool) -> u16 {
-    let per = if compact {
-        COMPACT_ROWS_PER_PROFILE
-    } else {
-        ROWS_PER_PROFILE
-    };
+    let per = if compact { COMPACT_ROWS_PER_PROFILE } else { ROWS_PER_PROFILE };
     let content = CHROME_LINES + per * profiles.max(1) as u16;
     content.clamp(CHROME_LINES + per, 28)
 }
@@ -75,7 +71,10 @@ fn restore_terminal(terminal: &mut Terminal<CrosstermBackend<Stdout>>) -> Result
 /// Run the input loop against the current viewport. Returns when the user quits
 /// or toggles the view mode; the caller rebuilds the viewport in the latter
 /// case (signaled via `App::take_view_dirty`).
-fn event_loop(terminal: &mut Terminal<CrosstermBackend<Stdout>>, app: &mut App) -> Result<()> {
+fn event_loop(
+    terminal: &mut Terminal<CrosstermBackend<Stdout>>,
+    app: &mut App,
+) -> Result<()> {
     loop {
         app.pump_usage();
         app.tick_auto_refresh();

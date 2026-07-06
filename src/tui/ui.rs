@@ -68,26 +68,17 @@ fn draw_title(f: &mut Frame, area: Rect, app: &App) {
     // toggle just after it (a focusable "row" — Enter toggles it). When focused
     // it highlights here and no profile row is, so the list stays easy to read.
     let toggle_style = if app.header_focused() {
-        Style::default()
-            .bg(SELECTION_BG)
-            .fg(ACCENT)
-            .add_modifier(Modifier::BOLD)
+        Style::default().bg(SELECTION_BG).fg(ACCENT).add_modifier(Modifier::BOLD)
     } else {
         secondary()
     };
     let marker = if app.header_focused() { "› " } else { "" };
     let line = Line::from(vec![
-        Span::styled(
-            " Claude Switcher",
-            Style::default().add_modifier(Modifier::BOLD),
-        ),
+        Span::styled(" Claude Switcher", Style::default().add_modifier(Modifier::BOLD)),
         Span::raw("   "),
         Span::styled(app.updated_label(), secondary()),
         Span::raw("    "),
-        Span::styled(
-            format!("{marker}{}", app.auto_refresh_label()),
-            toggle_style,
-        ),
+        Span::styled(format!("{marker}{}", app.auto_refresh_label()), toggle_style),
     ]);
     let p = Paragraph::new(line).block(Block::default().borders(Borders::ALL));
     f.render_widget(p, area);
@@ -96,12 +87,7 @@ fn draw_title(f: &mut Frame, area: Rect, app: &App) {
 fn draw_list(f: &mut Frame, area: Rect, app: &App) {
     let items: Vec<ListItem> = if app.compact() {
         // Pad names to the widest so the bars line up across rows.
-        let name_width = app
-            .profiles()
-            .iter()
-            .map(|p| p.name.chars().count())
-            .max()
-            .unwrap_or(0);
+        let name_width = app.profiles().iter().map(|p| p.name.chars().count()).max().unwrap_or(0);
         app.profiles()
             .iter()
             .map(|p| ListItem::new(compact_line(p, app.usage(&p.name), name_width)))
@@ -138,11 +124,7 @@ fn detailed_item(p: &Profile, state: Option<&UsageState>) -> ListItem<'static> {
     let mut spans = vec![
         Span::styled(
             check,
-            Style::default().fg(if p.active {
-                Color::Green
-            } else {
-                Color::DarkGray
-            }),
+            Style::default().fg(if p.active { Color::Green } else { Color::DarkGray }),
         ),
         Span::styled(
             p.name.clone(),
@@ -186,11 +168,7 @@ fn compact_line(p: &Profile, state: Option<&UsageState>, name_width: usize) -> L
     let mut spans = vec![
         Span::styled(
             check,
-            Style::default().fg(if p.active {
-                Color::Green
-            } else {
-                Color::DarkGray
-            }),
+            Style::default().fg(if p.active { Color::Green } else { Color::DarkGray }),
         ),
         Span::styled(
             format!("{:<name_width$}", p.name),
@@ -216,10 +194,7 @@ fn compact_usage_spans(state: Option<&UsageState>) -> Vec<Span<'static>> {
                 let pct = w.utilization.round() as i64;
                 let color = threshold_color(pct);
                 vec![
-                    Span::styled(
-                        crate::usage::bar(w.utilization, 16),
-                        Style::default().fg(color),
-                    ),
+                    Span::styled(crate::usage::bar(w.utilization, 16), Style::default().fg(color)),
                     Span::styled(format!(" {pct:>3}%"), Style::default().fg(color)),
                     Span::styled(format!("  {}", reset_phrase(w)), dim),
                 ]
@@ -266,10 +241,7 @@ fn window_bar_line(
     let color = threshold_color(pct);
     let mut spans = vec![
         Span::styled(format!("     {label} "), dim),
-        Span::styled(
-            crate::usage::bar(w.utilization, 16),
-            Style::default().fg(color),
-        ),
+        Span::styled(crate::usage::bar(w.utilization, 16), Style::default().fg(color)),
         Span::styled(format!(" {pct:>3}%"), Style::default().fg(color)),
         Span::styled(format!("  {}", reset_phrase(w)), dim),
     ];
@@ -300,10 +272,7 @@ const RESET_REL_WIDTH: usize = 17;
 /// e.g. "resets in 3h 36m  (2:50pm)". The countdown is padded to a fixed width
 /// so the parenthesized clock time aligns vertically across the two rows.
 fn reset_phrase(window: &crate::usage::Window) -> String {
-    match (
-        crate::usage::resets_in(window),
-        crate::usage::reset_clock(window),
-    ) {
+    match (crate::usage::resets_in(window), crate::usage::reset_clock(window)) {
         (Some(rel), Some(clock)) => format!("{rel:<w$} ({clock})", w = RESET_REL_WIDTH),
         (Some(rel), None) => rel,
         _ => String::new(),
@@ -321,28 +290,19 @@ fn draw_footer(f: &mut Frame, area: Rect, app: &App) {
             };
             Line::from(vec![
                 Span::styled(format!(" {label} — name: "), Style::default().fg(ACCENT)),
-                Span::styled(
-                    buffer.clone(),
-                    Style::default().add_modifier(Modifier::BOLD),
-                ),
+                Span::styled(buffer.clone(), Style::default().add_modifier(Modifier::BOLD)),
                 Span::styled("▏", Style::default().fg(ACCENT)),
                 Span::styled("  (enter ok · esc cancel)", secondary()),
             ])
         }
         Mode::ConfirmDelete { name } => Line::from(vec![
-            Span::styled(
-                format!(" remove '{name}'? "),
-                Style::default().fg(Color::Red),
-            ),
+            Span::styled(format!(" remove '{name}'? "), Style::default().fg(Color::Red)),
             Span::styled("directory kept  ", secondary()),
             Span::styled("(y confirm · n cancel)", secondary()),
         ]),
         Mode::Normal => {
             if let Some(status) = &app.status {
-                Line::from(Span::styled(
-                    format!(" {status}"),
-                    Style::default().fg(ACCENT),
-                ))
+                Line::from(Span::styled(format!(" {status}"), Style::default().fg(ACCENT)))
             } else {
                 // Keys depend on focus: on the header Refresh control you can't
                 // switch/rename/delete a profile, and Enter just refreshes. The
@@ -357,11 +317,7 @@ fn draw_footer(f: &mut Frame, area: Rect, app: &App) {
                 };
                 // 'm' flips between the full and compact (minimal) views. Kept
                 // to 8 cols so the longest footer variant still fits the width.
-                let view = if app.compact() {
-                    " · m max"
-                } else {
-                    " · m min"
-                };
+                let view = if app.compact() { " · m max" } else { " · m min" };
                 Line::from(Span::styled(format!("{base}{view} · q quit"), secondary()))
             }
         }
@@ -407,8 +363,7 @@ mod tests {
         // The column a needle starts in (chars, not bytes: the border/check
         // glyphs are multi-byte, so a byte offset would misreport the column).
         let col = |needle: &str| {
-            rows.iter()
-                .find_map(|r| r.find(needle).map(|b| r[..b].chars().count()))
+            rows.iter().find_map(|r| r.find(needle).map(|b| r[..b].chars().count()))
         };
 
         // Each profile is a single row; names are padded to the widest so their
@@ -416,32 +371,18 @@ mod tests {
         let paul = rows.iter().find(|r| r.contains("paul-nhost")).unwrap();
         let work = rows.iter().find(|r| r.contains("work")).unwrap();
         assert_ne!(paul, work, "each profile occupies its own line");
-        assert_eq!(
-            col("paul-nhost"),
-            col("work"),
-            "aliases start in the same column"
-        );
+        assert_eq!(col("paul-nhost"), col("work"), "aliases start in the same column");
     }
 
     #[test]
     fn clamp_width_caps_wide_and_preserves_narrow() {
-        let wide = Rect {
-            x: 0,
-            y: 0,
-            width: 200,
-            height: 24,
-        };
+        let wide = Rect { x: 0, y: 0, width: 200, height: 24 };
         let clamped = clamp_width(wide);
         assert_eq!(clamped.width, MAX_WIDTH);
         // Height, position, and origin are untouched — only width is capped.
         assert_eq!((clamped.x, clamped.y, clamped.height), (0, 0, 24));
 
-        let narrow = Rect {
-            x: 0,
-            y: 0,
-            width: 50,
-            height: 24,
-        };
+        let narrow = Rect { x: 0, y: 0, width: 50, height: 24 };
         assert_eq!(clamp_width(narrow), narrow);
     }
 }

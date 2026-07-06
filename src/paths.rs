@@ -104,10 +104,7 @@ mod tests {
     #[test]
     fn expands_tilde() {
         let p = paths();
-        assert_eq!(
-            p.expand("~/.claude-work"),
-            PathBuf::from("/home/alice/.claude-work")
-        );
+        assert_eq!(p.expand("~/.claude-work"), PathBuf::from("/home/alice/.claude-work"));
         assert_eq!(p.expand("~"), PathBuf::from("/home/alice"));
         assert_eq!(p.expand("/abs/path"), PathBuf::from("/abs/path"));
     }
@@ -115,10 +112,7 @@ mod tests {
     #[test]
     fn contracts_to_tilde() {
         let p = paths();
-        assert_eq!(
-            p.contract(Path::new("/home/alice/.claude-work")),
-            "~/.claude-work"
-        );
+        assert_eq!(p.contract(Path::new("/home/alice/.claude-work")), "~/.claude-work");
         assert_eq!(p.contract(Path::new("/home/alice")), "~");
         assert_eq!(p.contract(Path::new("/other/place")), "/other/place");
     }
@@ -126,14 +120,8 @@ mod tests {
     #[test]
     fn derived_locations() {
         let p = paths();
-        assert_eq!(
-            p.active_link(),
-            PathBuf::from("/home/alice/.claude-switcher")
-        );
-        assert_eq!(
-            p.default_profile_path("work"),
-            PathBuf::from("/home/alice/.claude-work")
-        );
+        assert_eq!(p.active_link(), PathBuf::from("/home/alice/.claude-switcher"));
+        assert_eq!(p.default_profile_path("work"), PathBuf::from("/home/alice/.claude-work"));
         assert_eq!(
             p.metadata_file(),
             PathBuf::from("/home/alice/.config/claude-switcher/profiles.json")

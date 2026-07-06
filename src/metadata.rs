@@ -66,11 +66,7 @@ pub struct Metadata {
     #[serde(default)]
     pub settings: Settings,
     /// Last usage snapshot, reused while still within the poll interval.
-    #[serde(
-        default,
-        skip_serializing_if = "Option::is_none",
-        rename = "usageCache"
-    )]
+    #[serde(default, skip_serializing_if = "Option::is_none", rename = "usageCache")]
     pub usage_cache: Option<UsageCache>,
 }
 
