@@ -4,7 +4,7 @@ A [pi](https://github.com/badlogic/pi-mono) extension for
 [claude-switcher](../). It surfaces the active Claude account inside pi and lets
 you switch accounts **without leaving your session**.
 
-Two features:
+Three features:
 
 1. **Footer status** — the active account, a mini usage bar, percent, and
    reset countdown, shown on the right of pi's path row (so the footer stays two
@@ -27,6 +27,15 @@ Two features:
 
    - `/claude-switcher` with no argument opens a picker (the active account is marked).
    - `/claude-switcher takeyoung` switches directly; account names tab-complete.
+
+3. **Account pinning** — on session start the extension captures the active
+   account and exports `CLAUDE_SWITCHER_PIN` for the pi process, so every
+   `claude-switcher-exec` the bridge spawns stays on that one account for the
+   whole conversation. Without it, an account switch elsewhere (or a machine
+   whose symlink is repointed underneath a long session) would scatter the
+   bridge's underlying Claude Code sessions across profile dirs and break
+   resume. An explicit `/claude-switcher` re-pins to the new account; the pin is
+   captured once per session, never per turn.
 
 ## Requirements
 

@@ -1,10 +1,14 @@
 /**
  * claude-switcher pi extension.
  *
- * Two features:
+ * Three features:
  *  1. Footer status — the active account + 5-hour usage on the footer's path row.
  *  2. /claude-switcher [account] — change the active Claude account without leaving pi
  *     (flips the symlink, re-points this process, reloads so history carries).
+ *  3. Account pinning — pin this session to one account so every bridge
+ *     child-exec stays on it (via CLAUDE_SWITCHER_PIN), even if the symlink is
+ *     flipped elsewhere; otherwise the bridge's underlying Claude Code sessions
+ *     scatter across profile dirs and resume breaks.
  *
  * Shows the active Claude account on the RIGHT side of the footer's path row
  * (row 1), above the model — so the status section stays 2 rows tall:
@@ -135,6 +139,25 @@ function resolveActiveConfigDir(): string {
 	} catch {
 		return link;
 	}
+}
+
+/**
+ * Pin the running pi process — and every claude-switcher-exec it spawns for the
+ * bridge — to the currently-active account for the life of this session.
+ * claude-switcher-exec honors CLAUDE_SWITCHER_PIN over the live symlink, so all
+ * turns of one conversation stay on one account even if the symlink is flipped
+ * elsewhere mid-conversation. Without this the underlying Claude Code sessions
+ * land in different profile dirs and resume/rebuild breaks. CLAUDE_CONFIG_DIR
+ * is set to the same dir for anything that reads it directly.
+ *
+ * Captured once per session (on session_start / an explicit switch), never
+ * per-turn — re-reading the symlink every turn would reintroduce the very
+ * thrash this prevents.
+ */
+function pinActiveAccount(): void {
+	const dir = resolveActiveConfigDir();
+	process.env.CLAUDE_SWITCHER_PIN = dir;
+	process.env.CLAUDE_CONFIG_DIR = dir;
 }
 
 // --- Formatting helpers ----------------------------------------------------
@@ -394,8 +417,19 @@ export default function (pi: ExtensionAPI) {
 		}
 	};
 
-	pi.on("session_start", (_event, ctx) => ensureFooter(ctx));
-	pi.on("before_agent_start", (_event, ctx) => ensureFooter(ctx));
+	// Re-pin on every session_start: startup/new/resume all want the active
+	// account captured, and a switch's reload re-fires this with the new target.
+	pi.on("session_start", (_event, ctx) => {
+		pinActiveAccount();
+		ensureFooter(ctx);
+	});
+	// before_agent_start fires per turn; only pin here as a set-once fallback for
+	// reload paths that don't re-fire session_start — never overwrite an existing
+	// pin, or a mid-conversation symlink flip would scatter the bridge sessions.
+	pi.on("before_agent_start", (_event, ctx) => {
+		if (!process.env.CLAUDE_SWITCHER_PIN) pinActiveAccount();
+		ensureFooter(ctx);
+	});
 
 	pi.on("session_shutdown", () => {
 		footerInstalled = false;
@@ -454,9 +488,10 @@ export default function (pi: ExtensionAPI) {
 				return;
 			}
 
-			// Re-point the running process at the new profile so the bridge's
-			// session JSONL lands in the right account dir on the next turn.
-			process.env.CLAUDE_CONFIG_DIR = resolveActiveConfigDir();
+			// Re-pin the running process to the new profile so the bridge's session
+			// JSONL lands in the right account dir on the next turn. The reload below
+			// re-fires session_start, which re-affirms this pin.
+			pinActiveAccount();
 			accountsCache = null;
 			snapshot = null; // force the footer to refetch usage for the new account
 
