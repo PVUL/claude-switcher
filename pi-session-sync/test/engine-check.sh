@@ -41,6 +41,20 @@ grep -q '"e":"A-side"' "$tmp/B/agent/sessions/proj/s1.jsonl" && \
 	grep -q '"e":"B-side"' "$tmp/B/agent/sessions/proj/s1.jsonl" && u=both || u=lost
 check "union merge keeps both sides of a same-file edit" "$u" "both"
 
+# Regression: a non-.jsonl conflict (.gitignore edited differently on both sides)
+# must NEVER be committed with conflict markers, and must leave the tree usable.
+# This is the failure that once baked <<<<<<< markers into .gitignore on origin.
+printf 'A-ignore\n' >"$tmp/A/agent/sessions/.gitignore"
+run "$tmp/A" push x >/dev/null
+printf 'B-ignore\n' >"$tmp/B/agent/sessions/.gitignore"
+run "$tmp/B" sync x >/dev/null 2>&1 || true
+grep -q '<<<<<<<' "$tmp/B/agent/sessions/.gitignore" && m=markers || m=clean
+check "non-.jsonl conflict never leaves markers in the tree" "$m" "clean"
+git -C "$tmp/B/agent/sessions" grep -q '<<<<<<<' HEAD -- . 2>/dev/null && c=committed || c=clean
+check "non-.jsonl conflict is never committed" "$c" "clean"
+PI_SESSIONS_DIR="$tmp/B/agent/sessions" SYNC_DEBOUNCE=0 sh "$ENGINE" push >/dev/null 2>&1
+check "repo left usable after a conflict (push rc 0)" "$?" "0"
+
 # Uninitialized dirs are silent no-ops (never disrupt a pi lifecycle call).
 PI_SESSIONS_DIR="$tmp/none/agent/sessions" sh "$ENGINE" pull >/dev/null 2>&1
 check "pull on uninitialized repo is a no-op (rc 0)" "$?" "0"

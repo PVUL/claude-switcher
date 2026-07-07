@@ -80,12 +80,56 @@ run_detached() {
 
 # --- git operations ---------------------------------------------------------
 
+# True if the repo is mid-merge/rebase or has unmerged (conflicted) paths. In
+# these states `git add -A` would stage conflict markers and a blind commit would
+# bake them into history — which once broke .gitignore (a non-.jsonl file, so the
+# `merge=union` driver didn't apply). Never commit while this is true.
+in_conflict_state() {
+	[ -e "$DIR/.git/MERGE_HEAD" ] && return 0
+	[ -d "$DIR/.git/rebase-merge" ] && return 0
+	[ -d "$DIR/.git/rebase-apply" ] && return 0
+	[ -n "$(git_dir ls-files -u 2>/dev/null)" ] && return 0
+	return 1
+}
+
+# Roll back a half-finished integration so the working tree stays clean and any
+# local (unpushed) commits are preserved; the next sync retries. Covers all three
+# shapes: an interrupted rebase, an interrupted merge, and — the realistic one — a
+# conflicted `--autostash` pop, which leaves an unmerged index with no MERGE_HEAD;
+# there we restore just the conflicted paths from HEAD (session .jsonl are never
+# the conflict, so nothing is lost).
+abort_integration() {
+	git_dir rebase --abort >>"$LOG" 2>&1 || true
+	git_dir merge --abort >>"$LOG" 2>&1 || true
+	# Restore the conflicted paths from HEAD (remote wins for the rare config-file
+	# clash — session .jsonl never conflict thanks to merge=union).
+	for f in $(git_dir ls-files -u 2>/dev/null | awk '{print $4}' | sort -u); do
+		git_dir checkout HEAD -- "$f" >>"$LOG" 2>&1 || true
+	done
+	# Drop the leftover autostash we just undid; its non-conflicting parts (any
+	# session writes) are already in the working tree and get committed next.
+	if git_dir stash list 2>/dev/null | head -1 | grep -q autostash; then
+		git_dir stash drop >>"$LOG" 2>&1 || true
+	fi
+}
+
 do_pull() {
-	git_dir pull --rebase --autostash origin "$BRANCH" >>"$LOG" 2>&1 || log "pull failed"
+	# NB: `git pull --autostash` exits 0 even when the autostash pop conflicts
+	# ("your changes are safe in the stash"), so decide by inspecting the repo,
+	# not the return code.
+	git_dir pull --rebase --autostash origin "$BRANCH" >>"$LOG" 2>&1 || log "pull returned nonzero"
+	if in_conflict_state; then
+		log "pull left a conflict (a non-.jsonl file, e.g. .gitignore) — taking remote, tree left clean; local commits preserved"
+		abort_integration
+	fi
 }
 
 do_push() {
 	debounced && return 0 # authoritative re-check inside the lock
+	if in_conflict_state; then
+		log "skip push: repo in conflict/merge state — resolve manually in $DIR"
+		return 0
+	fi
 	git_dir add -A >>"$LOG" 2>&1 || true
 	if ! git_dir diff --cached --quiet 2>/dev/null; then
 		host=$(hostname -s 2>/dev/null || hostname 2>/dev/null || echo host)
@@ -106,8 +150,10 @@ cmd_init() {
 		git_dir init -q
 		git_dir symbolic-ref HEAD "refs/heads/$BRANCH" 2>/dev/null || true
 	fi
-	printf '*.jsonl merge=union\n' >"$DIR/.gitattributes"
-	printf '.session-sync-state/\n' >"$DIR/.gitignore"
+	# Only if absent — never clobber an existing policy (a re-init writing a
+	# different .gitignore is what diverged mbp vs box and broke the repo).
+	[ -f "$DIR/.gitattributes" ] || printf '*.jsonl merge=union\n' >"$DIR/.gitattributes"
+	[ -f "$DIR/.gitignore" ] || printf '.session-sync-state/\n' >"$DIR/.gitignore"
 	if git_dir remote get-url origin >/dev/null 2>&1; then
 		git_dir remote set-url origin "$remote"
 	else
@@ -150,6 +196,10 @@ cmd_sync() {
 do_pull_then_push() { do_pull; do_push_forced; }
 # sync always pushes (timer cadence already rate-limits it); skip the debounce.
 do_push_forced() {
+	if in_conflict_state; then
+		log "skip push: repo in conflict/merge state — resolve manually in $DIR"
+		return 0
+	fi
 	git_dir add -A >>"$LOG" 2>&1 || true
 	if ! git_dir diff --cached --quiet 2>/dev/null; then
 		host=$(hostname -s 2>/dev/null || hostname 2>/dev/null || echo host)
