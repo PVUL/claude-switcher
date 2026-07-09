@@ -189,7 +189,7 @@ fn compact_line(p: &Profile, state: Option<&UsageState>, name_width: usize) -> L
 fn compact_usage_spans(state: Option<&UsageState>) -> Vec<Span<'static>> {
     let dim = secondary();
     match state {
-        Some(UsageState::Ready(u)) => match u.five_hour.as_ref() {
+        Some(UsageState::Ready(u)) | Some(UsageState::Cached(u)) => match u.five_hour.as_ref() {
             Some(w) => {
                 let pct = w.utilization.round() as i64;
                 let color = threshold_color(pct);
@@ -212,7 +212,7 @@ fn compact_usage_spans(state: Option<&UsageState>) -> Vec<Span<'static>> {
 fn append_usage_lines(lines: &mut Vec<Line<'static>>, state: Option<&UsageState>) {
     let dim = secondary();
     match state {
-        Some(UsageState::Ready(u)) => {
+        Some(UsageState::Ready(u)) | Some(UsageState::Cached(u)) => {
             lines.push(window_bar_line("5h", u.five_hour.as_ref(), None));
             let opus = u.seven_day_opus.as_ref().filter(|w| w.utilization > 0.0);
             lines.push(window_bar_line("7d", u.seven_day.as_ref(), opus));

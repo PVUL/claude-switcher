@@ -17,6 +17,9 @@ use crate::usage::{Usage, UsageCache};
 pub enum UsageState {
     Loading,
     Ready(Usage),
+    /// Live fetch failed, but we have last-known windows still valid until their
+    /// reset — shown instead of "unavailable" (rendered the same as `Ready`).
+    Cached(Usage),
     Unavailable,
 }
 
@@ -189,9 +192,23 @@ impl<'m> App<'m> {
 
     /// Drain completed usage lookups into state. Call once per UI tick. Once a
     /// fetch batch fully resolves, persist the snapshot for later sessions.
+    /// Last-known windows for a profile that haven't reset yet (deterministic reset
+    /// time ⇒ still accurate), for the offline / not-recently-used fallback.
+    fn cached_unexpired(&self, name: &str) -> Option<crate::usage::Usage> {
+        self.manager
+            .usage_cache()
+            .and_then(|c| c.profiles.get(name).cloned())
+            .and_then(|u| u.keep_unexpired())
+    }
+
     pub fn pump_usage(&mut self) {
         let mut changed = false;
         while let Ok((name, state)) = self.usage_rx.try_recv() {
+            let state = if matches!(state, UsageState::Unavailable) {
+                self.cached_unexpired(&name).map(UsageState::Cached).unwrap_or(UsageState::Unavailable)
+            } else {
+                state
+            };
             self.usage.insert(name, state);
             changed = true;
         }
@@ -206,7 +223,7 @@ impl<'m> App<'m> {
             .usage
             .iter()
             .filter_map(|(name, st)| match st {
-                UsageState::Ready(u) => Some((name.clone(), u.clone())),
+                UsageState::Ready(u) | UsageState::Cached(u) => Some((name.clone(), u.clone())),
                 _ => None,
             })
             .collect();
@@ -234,7 +251,7 @@ impl<'m> App<'m> {
     fn usage_unavailable(&self) -> bool {
         self.usage.values().any(|s| match s {
             UsageState::Unavailable => true,
-            UsageState::Ready(u) => u.five_hour.is_none() && u.seven_day.is_none(),
+            UsageState::Ready(u) | UsageState::Cached(u) => u.five_hour.is_none() && u.seven_day.is_none(),
             UsageState::Loading => false,
         })
     }

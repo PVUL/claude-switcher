@@ -150,7 +150,7 @@ fn list(mgr: &Manager, json: bool) -> Result<()> {
     Ok(())
 }
 
-fn usage(mgr: &Manager, json: bool) -> Result<()> {
+fn usage(mgr: &mut Manager, json: bool) -> Result<()> {
     let home = mgr.paths().home.clone();
     let link = mgr.paths().active_link();
     // Pin-aware for the displayed active marker...
@@ -164,19 +164,48 @@ fn usage(mgr: &Manager, json: bool) -> Result<()> {
         return Ok(());
     }
 
-    let mut json_items: Vec<serde_json::Value> = Vec::new();
+    // Fallback source: last-known windows. A window's reset moment is deterministic,
+    // so a cached window stays accurate until it expires — letting an offline / not-
+    // recently-used account keep showing its real reset time instead of nothing.
+    let cached: std::collections::HashMap<String, crate::usage::Usage> =
+        mgr.usage_cache().map(|c| c.profiles.clone()).unwrap_or_default();
+    let mut persist: std::collections::HashMap<String, crate::usage::Usage> =
+        std::collections::HashMap::new();
+
+    // (profile, usage-to-show, is_cached)
+    let mut rows: Vec<(Profile, Option<crate::usage::Usage>, bool)> = Vec::new();
     for p in &profiles {
         let is_symlink_active = symlink_active.as_deref() == Some(p.name.as_str());
         let active_link = if is_symlink_active { Some(link.as_path()) } else { None };
-        let usage = if p.exists {
+        let live = if p.exists {
             crate::usage::fetch(&p.path, &home, active_link)
         } else {
             None
         };
-        if json {
-            json_items.push(usage_json(p, usage.as_ref()));
-            continue;
+        let (usage, is_cached) = match live {
+            Some(u) => (Some(u), false),
+            None => (cached.get(&p.name).cloned().and_then(|u| u.keep_unexpired()), true),
+        };
+        if let Some(u) = &usage {
+            persist.insert(p.name.clone(), u.clone());
         }
+        rows.push((p.clone(), usage, is_cached));
+    }
+    // Persist what we showed (fresh or still-valid cached) so reset times survive
+    // across runs until they expire.
+    let _ = mgr.save_usage_cache(crate::usage::UsageCache {
+        fetched_at: Utc::now(),
+        profiles: persist,
+    });
+
+    if json {
+        let items: Vec<serde_json::Value> =
+            rows.iter().map(|(p, u, c)| usage_json(p, u.as_ref(), *c)).collect();
+        println!("{}", serde_json::to_string_pretty(&items).expect("serializable"));
+        return Ok(());
+    }
+
+    for (p, usage, is_cached) in &rows {
         let marker = if p.active { "*" } else { " " };
         let mut header = format!("{marker} {}", p.name);
         if let Some(id) = p.identity() {
@@ -185,6 +214,9 @@ fn usage(mgr: &Manager, json: bool) -> Result<()> {
         println!("{header}");
         match usage {
             Some(u) => {
+                if *is_cached {
+                    println!("      (cached — not queried just now; valid until reset)");
+                }
                 print_window("5-hour", u.five_hour.as_ref());
                 print_window("7-day", u.seven_day.as_ref());
                 if let Some(w) = u.seven_day_opus.as_ref().filter(|w| w.utilization > 0.0) {
@@ -193,9 +225,6 @@ fn usage(mgr: &Manager, json: bool) -> Result<()> {
             }
             None => println!("      usage:  unavailable (not signed in, token expired, or offline)"),
         }
-    }
-    if json {
-        println!("{}", serde_json::to_string_pretty(&json_items).expect("serializable"));
     }
     Ok(())
 }
@@ -221,7 +250,7 @@ fn reset_phrase(window: &crate::usage::Window) -> String {
     }
 }
 
-fn usage_json(p: &Profile, usage: Option<&crate::usage::Usage>) -> serde_json::Value {
+fn usage_json(p: &Profile, usage: Option<&crate::usage::Usage>, cached: bool) -> serde_json::Value {
     let win = |w: Option<&crate::usage::Window>| {
         w.map(|w| {
             serde_json::json!({
@@ -236,6 +265,7 @@ fn usage_json(p: &Profile, usage: Option<&crate::usage::Usage>) -> serde_json::V
         "plan": p.plan,
         "active": p.active,
         "available": usage.is_some(),
+        "cached": cached && usage.is_some(),
         "fiveHour": usage.and_then(|u| win(u.five_hour.as_ref())),
         "sevenDay": usage.and_then(|u| win(u.seven_day.as_ref())),
         "sevenDayOpus": usage.and_then(|u| win(u.seven_day_opus.as_ref())),

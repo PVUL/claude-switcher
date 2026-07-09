@@ -417,6 +417,30 @@ mod tests {
     }
 
     #[test]
+    fn keep_unexpired_drops_past_windows_and_keeps_future() {
+        let future = Some(Utc::now() + Duration::hours(1));
+        let past = Some(Utc::now() - Duration::hours(1));
+        let kept = Usage {
+            five_hour: Some(Window { utilization: 40.0, resets_at: past }),
+            seven_day: Some(Window { utilization: 60.0, resets_at: future }),
+            seven_day_opus: None,
+        }
+        .keep_unexpired()
+        .expect("a future window survives");
+        assert!(kept.five_hour.is_none(), "expired 5h dropped");
+        assert!(kept.seven_day.is_some(), "unexpired 7d kept");
+
+        // Everything expired ⇒ nothing to show.
+        let gone = Usage {
+            five_hour: Some(Window { utilization: 1.0, resets_at: past }),
+            seven_day: None,
+            seven_day_opus: None,
+        }
+        .keep_unexpired();
+        assert!(gone.is_none());
+    }
+
+    #[test]
     fn parses_creds_from_both_shapes() {
         let c = parse_creds(r#"{"claudeAiOauth":{"accessToken":"abc","expiresAt":1783162428812}}"#)
             .unwrap();
@@ -449,5 +473,27 @@ mod tests {
         assert_eq!(u.five_hour.unwrap().utilization, 13.0);
         assert_eq!(u.seven_day.unwrap().utilization, 11.0);
         assert!(u.seven_day_opus.is_none());
+    }
+}
+
+impl Usage {
+    /// Keep only windows whose reset time is still in the future. The 5-hour and
+    /// 7-day reset moments are deterministic, so a cached window stays *accurate*
+    /// until its reset passes — this lets a stale (offline / not-recently-used)
+    /// account keep showing its real reset time, then drop it once it expires.
+    /// Returns `None` if nothing survives (all windows expired or absent).
+    pub fn keep_unexpired(self) -> Option<Usage> {
+        let now = Utc::now();
+        let keep = |w: Option<Window>| w.filter(|w| w.resets_at.map(|r| r > now).unwrap_or(false));
+        let u = Usage {
+            five_hour: keep(self.five_hour),
+            seven_day: keep(self.seven_day),
+            seven_day_opus: keep(self.seven_day_opus),
+        };
+        if u.five_hour.is_none() && u.seven_day.is_none() && u.seven_day_opus.is_none() {
+            None
+        } else {
+            Some(u)
+        }
     }
 }
