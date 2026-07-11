@@ -31,6 +31,9 @@ pub enum Mode {
     Input { action: InputAction, buffer: String },
     /// Awaiting y/n confirmation for a delete.
     ConfirmDelete { name: String },
+    /// Shown right after adding an account: offer to launch `claude` so the
+    /// user can sign the (empty) new profile in. Enter proceeds, Esc skips.
+    PostAdd { name: String },
 }
 
 #[derive(Debug, Clone, PartialEq, Eq)]
@@ -72,6 +75,9 @@ pub struct App<'m> {
     /// Set when a fetch batch is in progress; drives persisting the snapshot
     /// once every lookup has resolved.
     usage_persist_pending: bool,
+    /// When the user chooses to sign in a just-added account, the profile's
+    /// config dir to launch `claude` in after the TUI is torn down.
+    launch_login: Option<PathBuf>,
 }
 
 /// Minimum gap between manual usage refreshes.
@@ -126,6 +132,7 @@ impl<'m> App<'m> {
             view_dirty: false,
             poll_interval_secs,
             usage_persist_pending: false,
+            launch_login: None,
         };
         app.seed_usage();
         app
@@ -516,23 +523,62 @@ impl<'m> App<'m> {
             return;
         };
         let name = buffer.trim().to_string();
-        let result = match action {
-            InputAction::Add => self.manager.add(&name, None).map(|_| format!("Added '{name}'.")),
-            InputAction::Rename { from } => self
-                .manager
-                .rename(&from, &name)
-                .map(|_| format!("Renamed to '{name}'.")),
-        };
-        match result {
-            Ok(msg) => {
-                self.status = Some(msg);
-                self.mode = Mode::Normal;
-                self.reload();
-                self.select_by_name(&name);
-            }
-            // Keep the input open so the user can fix the name.
-            Err(e) => self.status = Some(format!("Error: {e}")),
+        match action {
+            InputAction::Add => match self.manager.add(&name, None) {
+                Ok(_) => {
+                    self.reload();
+                    self.select_by_name(&name);
+                    // A fresh profile has no login state; offer to run `claude`
+                    // so the user can sign it in right away.
+                    self.status = Some(format!(
+                        "Added '{name}'. Press Enter to sign in with Claude (Esc to skip)."
+                    ));
+                    self.mode = Mode::PostAdd { name };
+                }
+                // Keep the input open so the user can fix the name.
+                Err(e) => self.status = Some(format!("Error: {e}")),
+            },
+            InputAction::Rename { from } => match self.manager.rename(&from, &name) {
+                Ok(()) => {
+                    self.status = Some(format!("Renamed to '{name}'."));
+                    self.mode = Mode::Normal;
+                    self.reload();
+                    self.select_by_name(&name);
+                }
+                // Keep the input open so the user can fix the name.
+                Err(e) => self.status = Some(format!("Error: {e}")),
+            },
         }
+    }
+
+    /// From the post-add prompt: activate the new account and record its config
+    /// dir so the terminal can launch `claude` (a sign-in) once the TUI closes.
+    pub fn continue_to_login(&mut self) {
+        let Mode::PostAdd { name } = self.mode.clone() else {
+            return;
+        };
+        // Make the new account active so the sign-in lands on it and it becomes
+        // what this terminal uses next; then hand its dir to the launcher.
+        let _ = self.manager.switch(&name);
+        self.reload();
+        if let Some(p) = self.profiles.iter().find(|p| p.name == name) {
+            self.launch_login = Some(p.path.clone());
+        }
+        self.mode = Mode::Normal;
+        self.should_quit = true;
+    }
+
+    /// Dismiss the post-add prompt without signing in, leaving the previously
+    /// active account in place.
+    pub fn skip_login(&mut self) {
+        self.mode = Mode::Normal;
+        self.status = None;
+    }
+
+    /// Take the pending sign-in launch (the new profile's config dir), if any.
+    /// Consumed by the terminal after the TUI is torn down.
+    pub fn take_launch_login(&mut self) -> Option<PathBuf> {
+        self.launch_login.take()
     }
 
     /// Confirm a pending delete (does not purge the directory).
@@ -601,6 +647,59 @@ mod tests {
         app.begin_delete();
         app.confirm_delete();
         assert_eq!(app.profiles().len(), 1);
+    }
+
+    #[test]
+    fn adding_offers_login_and_enter_launches_it() {
+        let dir = tempdir().unwrap();
+        let mut mgr = manager(dir.path());
+        let mut app = App::new(&mut mgr);
+
+        app.begin_add();
+        for c in "work".chars() {
+            app.input_push(c);
+        }
+        app.commit_input();
+
+        // The add lands in the post-add prompt, not straight back to Normal.
+        assert!(matches!(app.mode, Mode::PostAdd { .. }));
+        assert!(app.take_launch_login().is_none(), "nothing to launch until Enter");
+
+        // Enter activates the new account and queues its dir for a sign-in.
+        app.continue_to_login();
+        assert!(app.should_quit, "proceeding to login closes the TUI");
+        assert!(app.profiles().iter().find(|p| p.name == "work").unwrap().active);
+        let launch = app.take_launch_login().expect("login dir queued");
+        assert_eq!(launch, app.profiles().iter().find(|p| p.name == "work").unwrap().path);
+    }
+
+    #[test]
+    fn skipping_login_returns_to_normal_without_launching() {
+        let dir = tempdir().unwrap();
+        let mut mgr = manager(dir.path());
+        let mut app = App::new(&mut mgr);
+
+        // Add a second account so the skip can't be masked by first-add auto-activation.
+        for name in ["work", "personal"] {
+            app.begin_add();
+            for c in name.chars() {
+                app.input_push(c);
+            }
+            app.commit_input();
+            if name == "work" {
+                app.continue_to_login();
+                app.should_quit = false;
+                let _ = app.take_launch_login();
+            }
+        }
+
+        // "work" is active from its sign-in; skipping "personal" leaves it that way.
+        app.skip_login();
+        assert_eq!(app.mode, Mode::Normal);
+        assert!(!app.should_quit);
+        assert!(app.take_launch_login().is_none(), "skip queues no launch");
+        assert!(app.profiles().iter().find(|p| p.name == "work").unwrap().active);
+        assert!(!app.profiles().iter().find(|p| p.name == "personal").unwrap().active);
     }
 
     #[test]

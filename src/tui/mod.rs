@@ -37,7 +37,30 @@ pub fn run(manager: &mut Manager) -> Result<()> {
             break;
         }
     }
+    // Once the TUI is fully torn down (raw mode off, viewport cleared), launch
+    // `claude` in a just-added account if the user chose to sign in.
+    if let Some(dir) = app.take_launch_login() {
+        launch_claude_login(&dir);
+    }
     Ok(())
+}
+
+/// Run `claude` so the user can sign in to a freshly-added account. Mirrors
+/// `claude-switcher-exec`: pins `CLAUDE_CONFIG_DIR` to the resolved profile dir
+/// (not the `~/.claude-switcher` symlink) so the OAuth token lands in this
+/// account's own slot. `claude` inherits the terminal for the interactive flow.
+fn launch_claude_login(config_dir: &std::path::Path) {
+    eprintln!("Launching Claude to sign in… (Ctrl-C to cancel)");
+    let status = std::process::Command::new("claude")
+        .env("CLAUDE_CONFIG_DIR", config_dir)
+        .status();
+    if let Err(e) = status {
+        eprintln!(
+            "claude-switcher: could not launch `claude` ({e}). Sign in yourself with:\n  \
+             CLAUDE_CONFIG_DIR={} claude",
+            config_dir.display()
+        );
+    }
 }
 
 /// Size the inline viewport to the content, capped so it never dominates the
@@ -112,6 +135,15 @@ fn handle_key(app: &mut App, key: KeyEvent) {
         Mode::Normal => handle_normal(app, key),
         Mode::Input { .. } => handle_input(app, key),
         Mode::ConfirmDelete { .. } => handle_confirm(app, key),
+        Mode::PostAdd { .. } => handle_post_add(app, key),
+    }
+}
+
+fn handle_post_add(app: &mut App, key: KeyEvent) {
+    match key.code {
+        KeyCode::Enter => app.continue_to_login(),
+        KeyCode::Esc | KeyCode::Char('n') | KeyCode::Char('N') => app.skip_login(),
+        _ => {}
     }
 }
 

@@ -218,7 +218,10 @@ them, so no migration is needed.
 
 ### First-time sign-in for a profile
 
-A freshly added profile is an empty config dir, so it shows as *not signed in*:
+A freshly added profile is an empty config dir, so it shows as *not signed in*.
+Adding one in the TUI (`A`) prompts you to sign in right away — press `Enter`
+and it activates the new profile and launches `claude` so you can log in
+(`Esc` skips and leaves your current account active). From the command line:
 
 ```sh
 claude-switcher add work
@@ -236,7 +239,7 @@ Once signed in, `claude-switcher` reads the account email from the profile's
 | `↑`/`k`, `↓`/`j` | Move selection (incl. the header auto-refresh toggle)        |
 | `Enter`          | Switch to the selected profile; press it again on the now-active profile to close. Toggles auto-refresh when the header is focused |
 | `R`              | Manual refresh of usage (also resets the auto-refresh timer) |
-| `A`              | Add a profile                                                |
+| `A`              | Add a profile (then `Enter` to sign in with Claude, `Esc` to skip) |
 | `E`              | Edit (rename) the selected profile                           |
 | `D`              | Delete (unmanage) the profile                                |
 | `M`              | Toggle the compact (minimal) one-line-per-profile view       |

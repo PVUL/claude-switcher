@@ -300,6 +300,11 @@ fn draw_footer(f: &mut Frame, area: Rect, app: &App) {
             Span::styled("directory kept  ", secondary()),
             Span::styled("(y confirm · n cancel)", secondary()),
         ]),
+        Mode::PostAdd { name } => Line::from(vec![
+            Span::styled(format!(" added '{name}' "), Style::default().fg(Color::Green)),
+            Span::styled("— sign in with Claude?  ", Style::default().fg(ACCENT)),
+            Span::styled("(enter launch login · esc skip)", secondary()),
+        ]),
         Mode::Normal => {
             if let Some(status) = &app.status {
                 Line::from(Span::styled(format!(" {status}"), Style::default().fg(ACCENT)))
