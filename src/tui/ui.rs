@@ -29,8 +29,9 @@ fn secondary() -> Style {
 
 /// Chrome that surrounds the profile list (borders + title + footer lines).
 pub const CHROME_LINES: u16 = 6;
-/// Each profile occupies this many rows (name, 5h bar, 7d bar, last-used).
-pub const ROWS_PER_PROFILE: u16 = 4;
+/// Each profile occupies this many rows: the name row (with last-used aligned
+/// right), then the 5h and 7d usage bars.
+pub const ROWS_PER_PROFILE: u16 = 3;
 /// In the compact (minimal) view each profile is a single line: alias, 5-hour
 /// bar, and reset time.
 pub const COMPACT_ROWS_PER_PROFILE: u16 = 1;
@@ -93,9 +94,13 @@ fn draw_list(f: &mut Frame, area: Rect, app: &App) {
             .map(|p| ListItem::new(compact_line(p, app.usage(&p.name), name_width)))
             .collect()
     } else {
+        // Width available to a row's text: the list area minus the block's two
+        // borders and the always-reserved 2-col highlight gutter ("› "). Used
+        // to flush the last-used text to the right edge of the name line.
+        let content_width = area.width.saturating_sub(4) as usize;
         app.profiles()
             .iter()
-            .map(|p| detailed_item(p, app.usage(&p.name)))
+            .map(|p| detailed_item(p, app.usage(&p.name), content_width))
             .collect()
     };
 
@@ -118,10 +123,13 @@ fn draw_list(f: &mut Frame, area: Rect, app: &App) {
     f.render_stateful_widget(list, area, &mut state);
 }
 
-/// The full four-line profile row: name (+ identity), 5h bar, 7d bar, last-used.
-fn detailed_item(p: &Profile, state: Option<&UsageState>) -> ListItem<'static> {
+/// The three-line profile row: the name (+ identity) with the last-used time
+/// (and any status tags) flushed to the right edge on the same line, then the
+/// 5h and 7d usage bars. `width` is the row's usable text width, used to pad
+/// the name line so the right-hand text sits against the right border.
+fn detailed_item(p: &Profile, state: Option<&UsageState>, width: usize) -> ListItem<'static> {
     let check = if p.active { "✓ " } else { "  " };
-    let mut spans = vec![
+    let mut left = vec![
         Span::styled(
             check,
             Style::default().fg(if p.active { Color::Green } else { Color::DarkGray }),
@@ -136,8 +144,11 @@ fn detailed_item(p: &Profile, state: Option<&UsageState>) -> ListItem<'static> {
         ),
     ];
     if let Some(id) = p.identity() {
-        spans.push(Span::styled(format!(" ({id})"), secondary()));
+        left.push(Span::styled(format!(" ({id})"), secondary()));
     }
+
+    // Right-aligned trailer: any status tags, then the last-used time. Folding
+    // this onto the name line drops a whole row from every profile's height.
     let mut tags = Vec::new();
     if !p.exists {
         tags.push("MISSING DIR");
@@ -145,18 +156,22 @@ fn detailed_item(p: &Profile, state: Option<&UsageState>) -> ListItem<'static> {
     if !p.authenticated {
         tags.push("not signed in");
     }
-    let detail = format!(
-        "     last used: {}{}",
-        humanize(p.last_used),
-        if tags.is_empty() {
-            String::new()
-        } else {
-            format!("   [{}]", tags.join(", "))
-        }
-    );
+    let right = if tags.is_empty() {
+        format!("last used {}", humanize(p.last_used))
+    } else {
+        format!("[{}] · last used {}", tags.join(", "), humanize(p.last_used))
+    };
+
+    // Fill the gap between the left text and the right trailer with spaces so
+    // the trailer is right-aligned; keep at least one space if the row is tight.
+    let left_cols: usize = left.iter().map(|s| s.content.chars().count()).sum();
+    let pad = width.saturating_sub(left_cols + right.chars().count()).max(1);
+    let mut spans = left;
+    spans.push(Span::raw(" ".repeat(pad)));
+    spans.push(Span::styled(right, secondary()));
+
     let mut lines = vec![Line::from(spans)];
     append_usage_lines(&mut lines, state);
-    lines.push(Line::from(Span::styled(detail, secondary())));
     ListItem::new(lines)
 }
 
@@ -377,6 +392,30 @@ mod tests {
         let work = rows.iter().find(|r| r.contains("work")).unwrap();
         assert_ne!(paul, work, "each profile occupies its own line");
         assert_eq!(col("paul-nhost"), col("work"), "aliases start in the same column");
+    }
+
+    #[test]
+    fn detailed_view_puts_last_used_on_the_name_line() {
+        let dir = tempdir().unwrap();
+        let paths = Paths::with_roots(dir.path().join("home"), dir.path().join("cfg"));
+        std::fs::create_dir_all(&paths.home).unwrap();
+        let mut mgr = Manager::load(paths).unwrap();
+        mgr.add("paul-nhost", None).unwrap();
+
+        let app = App::new(&mut mgr);
+        let mut terminal = Terminal::new(TestBackend::new(MAX_WIDTH, 12)).unwrap();
+        terminal.draw(|f| draw(f, &app)).unwrap();
+        let rows = rows(&terminal);
+
+        // The name and its last-used trailer share one row (no separate line).
+        let name_row = rows.iter().find(|r| r.contains("paul-nhost")).unwrap();
+        assert!(name_row.contains("last used"), "last-used sits on the name line");
+        // And it is flushed right: the name is left of the trailer on that row.
+        let name_col = name_row.find("paul-nhost").map(|b| name_row[..b].chars().count());
+        let used_col = name_row.find("last used").map(|b| name_row[..b].chars().count());
+        assert!(used_col > name_col, "last-used is right of the name");
+        // No other row repeats it — the dedicated last-used line is gone.
+        assert_eq!(rows.iter().filter(|r| r.contains("last used")).count(), 1);
     }
 
     #[test]
