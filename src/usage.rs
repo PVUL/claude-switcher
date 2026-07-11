@@ -7,10 +7,12 @@
 //!
 //! How it works (reverse-engineered from Claude Code itself):
 //!   * The OAuth access token for a config dir is stored either in a
-//!     `<dir>/.credentials.json` file (Linux) or the macOS Keychain under the
-//!     service `Claude Code-credentials` for the default `~/.claude`, or
-//!     `Claude Code-credentials-<first 8 hex of sha256(abs config dir)>` for any
-//!     other config directory.
+//!     `<dir>/.credentials.json` file (Linux) or the macOS Keychain. Claude Code
+//!     keys the Keychain slot by a hash of the config dir it was launched with:
+//!     `Claude Code-credentials-<first 8 hex of sha256(abs config dir)>`. The
+//!     bare, unsuffixed `Claude Code-credentials` slot is used only when Claude
+//!     runs with no CLAUDE_CONFIG_DIR at all — so even `~/.claude` uses the
+//!     hashed slot when launched through claude-switcher, which always sets it.
 //!   * Usage is a GET to `https://api.anthropic.com/api/oauth/usage` with the
 //!     token as a bearer and the `anthropic-beta: oauth-2025-04-20` header.
 
@@ -124,22 +126,25 @@ struct Cred {
 /// Resolve the access token for a profile.
 ///
 /// A profile's own account-specific credentials (the on-disk token and the
-/// Keychain slot(s) keyed by its *directory*) are tried first, freshest expiry
-/// winning among them. The active symlink's Keychain slot is consulted **only**
-/// as a last resort: it is keyed by the symlink path, not the account, so it is
-/// SHARED across profiles and holds whichever account last authenticated
-/// through it. Merging it into the freshest-expiry race (the previous behavior)
-/// let a token left by a previously-active account leak in, making the active
-/// profile report another account's usage — so we never do that anymore.
+/// Keychain slot(s) keyed by a hash of its *directory*) are tried first,
+/// freshest expiry winning among them. Shared slots that can hold a *different*
+/// account's token — the plain unsuffixed `~/.claude` slot and the active
+/// symlink's slot — are consulted **only** as a last resort, never mixed into
+/// the freshest-expiry race: a token left there by another account (e.g. plain
+/// `claude` usage, or a previously-active profile) would otherwise win and make
+/// this profile report the wrong account's usage.
 fn access_token(profile_path: &Path, home: &Path, active_link: Option<&Path>) -> Option<String> {
     let mut own: Vec<Cred> = Vec::new();
     // Linux (and any install that writes the token to disk).
     if let Some(c) = token_from_file(profile_path) {
         own.push(c);
     }
-    // macOS Keychain, the profile's own directory-keyed slot(s).
+    // macOS Keychain: the account-specific slot(s) keyed by a hash of the
+    // profile's own directory — what Claude Code uses whenever it is launched
+    // with CLAUDE_CONFIG_DIR set, as claude-switcher always does (including for
+    // ~/.claude, which is why we do NOT read the plain slot here).
     #[cfg(target_os = "macos")]
-    for service in own_keychain_services(profile_path, home) {
+    for service in own_keychain_services(profile_path) {
         if let Some(c) = token_from_keychain(&service) {
             own.push(c);
         }
@@ -153,11 +158,22 @@ fn access_token(profile_path: &Path, home: &Path, active_link: Option<&Path>) ->
         return Some(tok);
     }
 
-    // Legacy fallback only: a token stored under the unresolved symlink path.
+    // Shared fallbacks, only if the account-specific slot(s) above were empty.
     #[cfg(target_os = "macos")]
-    if let Some(link) = active_link {
-        if let Some(c) = token_from_keychain(&service_name(link, home)) {
-            return Some(c.access_token);
+    {
+        // The default `~/.claude`, when Claude runs with NO CLAUDE_CONFIG_DIR,
+        // keeps its token in the plain unsuffixed slot. That slot is shared
+        // with every such un-managed run, so it's a fallback, not the primary.
+        if profile_path == home.join(".claude") {
+            if let Some(c) = token_from_keychain(DEFAULT_KEYCHAIN_SERVICE) {
+                return Some(c.access_token);
+            }
+        }
+        // Legacy: a token stored under the unresolved active-symlink path.
+        if let Some(link) = active_link {
+            if let Some(c) = token_from_keychain(&service_name(link, home)) {
+                return Some(c.access_token);
+            }
         }
     }
     #[cfg(not(target_os = "macos"))]
@@ -226,11 +242,14 @@ fn token_from_file(dir: &Path) -> Option<Cred> {
     parse_creds(&text)
 }
 
-/// The profile's own account-specific Keychain service names (keyed by its
-/// directory, both resolved and unresolved). Deliberately excludes the shared
-/// active-symlink slot, which is not account-specific.
+/// The profile's own account-specific Keychain service names, keyed by a hash
+/// of its directory (both the resolved and unresolved path). This is the hashed
+/// slot for *every* profile — including the default `~/.claude`, whose token
+/// lives here (not in the plain slot) whenever Claude is launched with
+/// CLAUDE_CONFIG_DIR set. Deliberately excludes the shared plain and
+/// active-symlink slots, which are not account-specific.
 #[cfg(target_os = "macos")]
-fn own_keychain_services(profile_path: &Path, home: &Path) -> Vec<String> {
+fn own_keychain_services(profile_path: &Path) -> Vec<String> {
     let mut paths: Vec<PathBuf> = Vec::new();
     let resolved = std::fs::canonicalize(profile_path).unwrap_or_else(|_| profile_path.to_path_buf());
     paths.push(resolved.clone());
@@ -238,17 +257,29 @@ fn own_keychain_services(profile_path: &Path, home: &Path) -> Vec<String> {
         paths.push(profile_path.to_path_buf());
     }
 
-    let mut services: Vec<String> = paths.iter().map(|p| service_name(p, home)).collect();
+    let mut services: Vec<String> = paths.iter().map(|p| hashed_service(p)).collect();
     services.dedup();
     services
+}
+
+/// The Keychain service Claude Code uses for a config dir accessed as the *bare*
+/// default — no CLAUDE_CONFIG_DIR set. Shared across all such un-managed runs.
+#[cfg(target_os = "macos")]
+const DEFAULT_KEYCHAIN_SERVICE: &str = "Claude Code-credentials";
+
+/// The account-specific service for a config dir: `Claude Code-credentials-` +
+/// a hash of the path. What Claude Code uses whenever CLAUDE_CONFIG_DIR is set.
+#[cfg(target_os = "macos")]
+fn hashed_service(path: &Path) -> String {
+    format!("Claude Code-credentials-{}", config_hash(path))
 }
 
 #[cfg(target_os = "macos")]
 fn service_name(path: &Path, home: &Path) -> String {
     if path == home.join(".claude") {
-        "Claude Code-credentials".to_string()
+        DEFAULT_KEYCHAIN_SERVICE.to_string()
     } else {
-        format!("Claude Code-credentials-{}", config_hash(path))
+        hashed_service(path)
     }
 }
 
@@ -403,9 +434,24 @@ mod tests {
         let home = Path::new("/Users/pyun");
         let profile = home.join(".claude-work");
         let link = home.join(".claude-switcher");
-        let services = own_keychain_services(&profile, home);
+        let services = own_keychain_services(&profile);
         assert!(services.contains(&service_name(&profile, home)));
         assert!(!services.contains(&service_name(&link, home)));
+    }
+
+    #[cfg(target_os = "macos")]
+    #[test]
+    fn default_profile_uses_the_hashed_slot_not_the_plain_one() {
+        // Regression: ~/.claude launched via the switcher (CLAUDE_CONFIG_DIR
+        // set) keys its token by a hash of the path, NOT the plain shared slot.
+        // Reading the plain slot picks up whatever account last ran un-managed
+        // `claude`, mis-attributing its usage to the default profile.
+        // (A non-existent home keeps `canonicalize` from resolving a real dir.)
+        let home = Path::new("/no/such/home");
+        let default_dir = home.join(".claude");
+        let services = own_keychain_services(&default_dir);
+        assert_eq!(services, vec![hashed_service(&default_dir)]);
+        assert!(!services.contains(&DEFAULT_KEYCHAIN_SERVICE.to_string()));
     }
 
     #[test]
