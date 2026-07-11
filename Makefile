@@ -29,9 +29,11 @@ install: build
 	@mkdir -p "$(BIN_DIR)"
 	@install -m 0755 "$(REPO_DIR)/target/release/claude-switcher" "$(BIN_DIR)/claude-switcher"
 	@install -m 0755 "$(REPO_DIR)/scripts/claude-switcher-exec" "$(BIN_DIR)/claude-switcher-exec"
+	@ln -sf "claude-switcher" "$(BIN_DIR)/csw"
 	@echo
 	@echo "Installed:"
 	@echo "  $(BIN_DIR)/claude-switcher"
+	@echo "  $(BIN_DIR)/csw -> claude-switcher"
 	@echo "  $(BIN_DIR)/claude-switcher-exec"
 	@echo
 	@case ":$(PATH):" in \
@@ -59,5 +61,5 @@ install: build
 
 uninstall:
 	@echo "==> Removing from $(BIN_DIR)"
-	@rm -f "$(BIN_DIR)/claude-switcher" "$(BIN_DIR)/claude-switcher-exec"
-	@echo "Removed claude-switcher and claude-switcher-exec"
+	@rm -f "$(BIN_DIR)/claude-switcher" "$(BIN_DIR)/csw" "$(BIN_DIR)/claude-switcher-exec"
+	@echo "Removed claude-switcher, csw and claude-switcher-exec"

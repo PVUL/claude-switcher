@@ -50,9 +50,10 @@ make install                    # installs to ~/.local/bin
 make install PREFIX=/usr/local  # or a system prefix
 ```
 
-This installs two things:
+This installs three things:
 
 - `claude-switcher` — the manager (CLI + TUI).
+- `csw` — a short alias (symlink) for `claude-switcher`.
 - `claude-switcher-exec` — a tiny wrapper that runs Claude under the active
   profile, for tools that take an executable path instead of an environment.
 
