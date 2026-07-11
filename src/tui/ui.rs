@@ -320,25 +320,31 @@ fn draw_footer(f: &mut Frame, area: Rect, app: &App) {
             Span::styled("— sign in with Claude?  ", Style::default().fg(ACCENT)),
             Span::styled("(enter launch login · esc skip)", secondary()),
         ]),
+        // The settings menu surfaces the destructive actions kept off the main
+        // list; esc backs out.
+        Mode::Settings => Line::from(vec![
+            Span::styled(" settings — ", Style::default().fg(ACCENT)),
+            Span::styled("↑↓ move · a add · e edit · d delete · esc back", secondary()),
+        ]),
         Mode::Normal => {
             if let Some(status) = &app.status {
                 Line::from(Span::styled(format!(" {status}"), Style::default().fg(ACCENT)))
             } else {
-                // Keys depend on focus: on the header Refresh control you can't
-                // switch/rename/delete a profile, and Enter just refreshes. The
-                // view toggle sits just before quit, which stays last.
+                // Keys depend on focus: on the header Refresh control Enter just
+                // refreshes; on a profile it switches (or closes the active
+                // one). Add / edit / delete live behind `s settings`.
                 let base = if app.header_focused() {
-                    " ↑↓ move · enter toggle auto-refresh · a add · r refresh"
+                    " ↑↓ move · enter toggle auto-refresh · r refresh"
                 } else if app.selected_profile().is_some_and(|p| p.active) {
                     // Already on the active profile: a (second) Enter closes.
-                    " ↑↓ move · enter close · a add · e edit · d delete · r refresh"
+                    " ↑↓ move · enter close · r refresh"
                 } else {
-                    " ↑↓ move · enter switch · a add · e edit · d delete · r refresh"
+                    " ↑↓ move · enter switch · r refresh"
                 };
                 // 'm' flips between the full and compact (minimal) views. Kept
                 // to 8 cols so the longest footer variant still fits the width.
                 let view = if app.compact() { " · m max" } else { " · m min" };
-                Line::from(Span::styled(format!("{base}{view} · q quit"), secondary()))
+                Line::from(Span::styled(format!("{base}{view} · s settings · q quit"), secondary()))
             }
         }
     };

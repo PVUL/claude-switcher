@@ -46,8 +46,8 @@ Point anything at `~/.claude-switcher` and it uses whichever account is active.
 Requires [Rust](https://rustup.rs). From the repo:
 
 ```sh
-./install.sh                    # installs to ~/.local/bin
-PREFIX=/usr/local ./install.sh  # or a system prefix
+make install                    # installs to ~/.local/bin
+make install PREFIX=/usr/local  # or a system prefix
 ```
 
 This installs two things:

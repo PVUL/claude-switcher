@@ -133,6 +133,7 @@ fn handle_key(app: &mut App, key: KeyEvent) {
 
     match app.mode.clone() {
         Mode::Normal => handle_normal(app, key),
+        Mode::Settings => handle_settings(app, key),
         Mode::Input { .. } => handle_input(app, key),
         Mode::ConfirmDelete { .. } => handle_confirm(app, key),
         Mode::PostAdd { .. } => handle_post_add(app, key),
@@ -155,9 +156,23 @@ fn handle_normal(app: &mut App, key: KeyEvent) {
         KeyCode::Down | KeyCode::Char('j') => app.select_next(),
         KeyCode::Up | KeyCode::Char('k') => app.select_prev(),
         KeyCode::Enter => app.activate(),
-        KeyCode::Char('a') | KeyCode::Char('A') => app.begin_add(),
         KeyCode::Char('r') | KeyCode::Char('R') => app.manual_refresh(),
         KeyCode::Char('m') | KeyCode::Char('M') => app.toggle_compact(),
+        KeyCode::Char('s') | KeyCode::Char('S') => app.open_settings(),
+        _ => {}
+    }
+}
+
+// The add / edit / delete actions live behind the settings menu so a stray
+// keypress on the main list can't add, rename, or remove a profile. Esc backs
+// out to the normal list.
+fn handle_settings(app: &mut App, key: KeyEvent) {
+    app.status = None;
+    match key.code {
+        KeyCode::Esc | KeyCode::Char('s') | KeyCode::Char('S') => app.cancel(),
+        KeyCode::Down | KeyCode::Char('j') => app.select_next(),
+        KeyCode::Up | KeyCode::Char('k') => app.select_prev(),
+        KeyCode::Char('a') | KeyCode::Char('A') => app.begin_add(),
         KeyCode::Char('e') | KeyCode::Char('E') => app.begin_rename(),
         KeyCode::Char('d') | KeyCode::Char('D') => app.begin_delete(),
         _ => {}

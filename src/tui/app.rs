@@ -27,6 +27,9 @@ pub enum UsageState {
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub enum Mode {
     Normal,
+    /// The settings menu, reached with `s`. Guards the destructive add / edit /
+    /// delete actions behind an explicit step so they can't be hit by accident.
+    Settings,
     /// Text entry for adding or renaming.
     Input { action: InputAction, buffer: String },
     /// Awaiting y/n confirmation for a delete.
@@ -477,6 +480,10 @@ impl<'m> App<'m> {
         if let Some(idx) = self.profiles.iter().position(|p| p.name == name) {
             self.selected = idx + 1;
         }
+    }
+
+    pub fn open_settings(&mut self) {
+        self.mode = Mode::Settings;
     }
 
     pub fn begin_add(&mut self) {
