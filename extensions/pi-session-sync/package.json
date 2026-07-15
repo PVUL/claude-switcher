@@ -1,24 +1,26 @@
 {
-  "name": "pi-claude-switcher",
+  "name": "pi-session-sync",
   "version": "0.1.0",
-  "description": "Pi extension for claude-switcher: shows the active Claude account + usage in the footer, and switches accounts in-session with /claude-switcher.",
+  "description": "Pi extension that syncs pi's session transcripts across machines via a private git remote, driven by pi's session lifecycle.",
   "type": "module",
   "license": "MIT",
   "author": "Paul Yun",
   "repository": {
     "type": "git",
     "url": "git+https://github.com/PVUL/claude-switcher.git",
-    "directory": "pi-extension"
+    "directory": "extensions/pi-session-sync"
   },
   "keywords": [
     "pi",
     "pi-extension",
     "claude",
-    "claude-code",
-    "claude-switcher"
+    "sessions",
+    "sync",
+    "git"
   ],
   "files": [
     "index.ts",
+    "session-sync.sh",
     "README.md"
   ],
   "pi": {
@@ -28,13 +30,9 @@
   },
   "scripts": {
     "check": "tsc --noEmit",
-    "test": "node test/layout-check.mjs"
-  },
-  "dependencies": {
-    "@mariozechner/pi-tui": "^0.73.1"
+    "test": "sh test/engine-check.sh"
   },
   "devDependencies": {
-    "@mariozechner/pi-ai": "^0.73.1",
     "@mariozechner/pi-coding-agent": "^0.73.1",
     "@types/node": "^22.0.0",
     "typescript": "^5.6.0"

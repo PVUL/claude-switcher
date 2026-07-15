@@ -1,81 +1,40 @@
-# Makefile — build and install claude-switcher + the claude-switcher-exec wrapper.
-#
-# Usage:
-#   make install                    # install to ~/.local/bin (no sudo)
-#   make install PREFIX=/usr/local  # install to /usr/local/bin
-#   make build                      # just build the release binary
-#   make install-slim               # install, then reclaim the build cache
-#   make slim                       # reclaim the ~600 MB Rust build cache
-#   make uninstall                  # remove the installed binaries
-#
-# Re-run on any machine that has Rust installed to reproduce the setup.
+# claude-switcher monorepo — top-level tasks that fan out to each project.
+# Rust TUI in switcher/; pi extensions (TypeScript, bun workspaces) in extensions/.
 
-PREFIX ?= $(HOME)/.local
-BIN_DIR := $(PREFIX)/bin
-REPO_DIR := $(CURDIR)
+.DEFAULT_GOAL := help
+BUN := bun
 
-.PHONY: all build install install-slim slim uninstall
+.PHONY: help deps build install install-slim slim uninstall test check clean
 
-all: build
+help: ## show this help
+	@grep -hE '^[a-zA-Z_-]+:.*?## ' $(MAKEFILE_LIST) | \
+	  awk 'BEGIN{FS=":.*?## "}{printf "  \033[36m%-9s\033[0m %s\n", $$1, $$2}'
 
-build:
-	@command -v cargo >/dev/null 2>&1 || { \
-		echo "error: cargo (Rust) is required. Install from https://rustup.rs" >&2; \
-		exit 1; \
-	}
-	@echo "==> Building claude-switcher (release)"
-	@cargo build --release
+deps: ## install extension deps (bun workspaces → one hoisted ./node_modules)
+	$(BUN) install
 
-install: build
-	@echo "==> Installing to $(BIN_DIR)"
-	@mkdir -p "$(BIN_DIR)"
-	@install -m 0755 "$(REPO_DIR)/target/release/claude-switcher" "$(BIN_DIR)/claude-switcher"
-	@install -m 0755 "$(REPO_DIR)/scripts/claude-switcher-exec" "$(BIN_DIR)/claude-switcher-exec"
-	@ln -sf "claude-switcher" "$(BIN_DIR)/csw"
-	@echo
-	@echo "Installed:"
-	@echo "  $(BIN_DIR)/claude-switcher"
-	@echo "  $(BIN_DIR)/csw -> claude-switcher"
-	@echo "  $(BIN_DIR)/claude-switcher-exec"
-	@echo
-	@case ":$(PATH):" in \
-		*":$(BIN_DIR):"*) ;; \
-		*) echo "note: add $(BIN_DIR) to your PATH:"; \
-		   echo "      export PATH=\"$(BIN_DIR):\$$PATH\"" ;; \
-	esac
-	@echo
-	@echo "Next steps"
-	@echo "----------"
-	@echo "1. Add your accounts (each is a full, isolated Claude config dir):"
-	@echo "     claude-switcher add work"
-	@echo "     claude-switcher add personal"
-	@echo "   Sign in to each by running \`claude-switcher switch <name>\` then \`claude\`."
-	@echo
-	@echo "2. Point the Claude CLI at the active profile by adding this to your shell"
-	@echo "   profile (this is what makes a plain \`claude\` follow your switches):"
-	@echo "     export CLAUDE_CONFIG_DIR=\"\$$HOME/.claude-switcher\""
-	@echo "   For tools that need an executable path (e.g. pi-claude-bridge), point them"
-	@echo "   at the installed \`claude-switcher-exec\` instead."
-	@echo
-	@echo "3. Switch anytime:"
-	@echo "     claude-switcher            # interactive TUI"
-	@echo "     claude-switcher switch work"
+build: deps ## cargo build --release (the TUI) + extension deps
+	cd switcher && cargo build --release
 
-# Reclaim the Rust build cache (target/, ~600 MB). Safe: the installed binary
-# is a standalone copy in $(BIN_DIR) — cleaning only affects the speed of the
-# NEXT build, never the installed tool's behavior or performance. Rebuild with
-# `make build` (or `make install`).
-slim:
-	@echo "==> Reclaiming build cache (cargo clean)"
-	@cargo clean
-	@echo "Done — target/ cleared. Rebuild anytime with 'make build'."
+install: ## build + install the TUI (+ csw alias) to ~/.local/bin (see switcher/Makefile)
+	$(MAKE) -C switcher install
 
-# Build + install the standalone binary, then drop the build cache. Steady-state
-# footprint is just the installed binary (~1 MB); updating recompiles from
-# scratch (a minute or two).
-install-slim: install slim
+install-slim: ## install, then reclaim the Rust build cache
+	$(MAKE) -C switcher install-slim
 
-uninstall:
-	@echo "==> Removing from $(BIN_DIR)"
-	@rm -f "$(BIN_DIR)/claude-switcher" "$(BIN_DIR)/csw" "$(BIN_DIR)/claude-switcher-exec"
-	@echo "Removed claude-switcher, csw and claude-switcher-exec"
+slim: ## reclaim the Rust build cache (target/)
+	$(MAKE) -C switcher slim
+
+uninstall: ## remove the installed binaries
+	$(MAKE) -C switcher uninstall
+
+test: ## rust tests + each extension's test script
+	cd switcher && cargo test
+	$(BUN) run --filter '*' test
+
+check: ## typecheck the extensions
+	$(BUN) run --filter '*' check
+
+clean: ## drop build caches (target/, node_modules/) — checkout back to a few MB
+	cd switcher && cargo clean
+	rm -rf node_modules extensions/*/node_modules

@@ -1,0 +1,9 @@
+{
+  "name": "claude-switcher",
+  "private": true,
+  "version": "0.0.0",
+  "description": "Monorepo: the claude-switcher Rust TUI + its pi extensions.",
+  "workspaces": [
+    "extensions/*"
+  ]
+}

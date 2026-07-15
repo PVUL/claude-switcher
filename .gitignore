@@ -1,1 +1,7 @@
-/target
+# Rust build cache (any crate, any depth — e.g. switcher/target)
+target/
+
+# JS deps — bun workspaces hoist to ./node_modules; regenerate with `bun install`
+node_modules/
+
+# we DO commit bun.lock (text lockfile) for reproducible extension installs

@@ -1,7 +1,7 @@
 # pi-claude-switcher
 
 A [pi](https://github.com/badlogic/pi-mono) extension for
-[claude-switcher](../). It surfaces the active Claude account inside pi and lets
+[claude-switcher](../../switcher). It surfaces the active Claude account inside pi and lets
 you switch accounts **without leaving your session**.
 
 Three features:
@@ -51,7 +51,7 @@ Three features:
 
 ## Requirements
 
-- [`claude-switcher`](../) installed and on `PATH` (or at `~/.local/bin`,
+- [`claude-switcher`](../../switcher) installed and on `PATH` (or at `~/.local/bin`,
   `/usr/local/bin`, or `/opt/homebrew/bin`).
 - pi driving Claude via
   [`pi-claude-bridge`](https://www.npmjs.com/package/@vanillagreen/pi-claude-bridge)
