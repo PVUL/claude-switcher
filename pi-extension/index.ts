@@ -495,9 +495,118 @@ function installFooter(pi: ExtensionAPI, ctx: ExtensionContext): void {
 	});
 }
 
+// --- Auto-continue on a stream-idle pause ----------------------------------
+//
+// The Claude bridge (@vanillagreen/pi-claude-bridge) runs a first-output
+// watchdog: if Claude Code accepts a turn but streams nothing for ~90s
+// (upstream overload / slowness), it ends the turn with a *retryable* error
+// tagged rateLimitType "stream_idle" — a mid-conversation PAUSE, not a real
+// stop. Pi surfaces the error and waits; the turn then sits dead until someone
+// types "continue". Sometimes that's minutes or hours later, because nobody saw
+// the message. This re-sends "continue" automatically, with exponential
+// backoff, so a paused turn warms itself back up unattended.
+//
+// It fires ONLY on the stream_idle pause. A genuine usage cap surfaces with a
+// different rateLimitType (five_hour / seven_day / opus_weekly …) and a reset
+// time — never "stream_idle" — so a real cap is never auto-continued. Any
+// normal turn completion resets the backoff.
+//
+// Interactive sessions only (hasUI): the one-shot chat/agent runs on the box
+// have their own retry and must not be nudged from here.
+//
+// Tunables (env, read at load): PI_AUTO_CONTINUE=0 disables; PI_AUTO_CONTINUE_MAX
+// (default 40) caps consecutive attempts; PI_AUTO_CONTINUE_BASE_MS (60000) and
+// PI_AUTO_CONTINUE_MAX_MS (900000) bound the backoff; PI_AUTO_CONTINUE_TEXT
+// ("continue") is the nudge sent.
+
+function acInt(raw: string | undefined, def: number, min: number, max: number): number {
+	const n = raw == null ? NaN : Number.parseInt(raw, 10);
+	return Number.isFinite(n) ? Math.min(max, Math.max(min, n)) : def;
+}
+
+const AUTO_CONTINUE_TEXT = process.env.PI_AUTO_CONTINUE_TEXT?.trim() || "continue";
+const AUTO_CONTINUE_MAX = acInt(process.env.PI_AUTO_CONTINUE_MAX, 40, 0, 1000);
+const AUTO_CONTINUE_BASE_MS = acInt(process.env.PI_AUTO_CONTINUE_BASE_MS, 60_000, 1_000, 3_600_000);
+const AUTO_CONTINUE_MAX_MS = acInt(process.env.PI_AUTO_CONTINUE_MAX_MS, 900_000, 1_000, 6 * 3_600_000);
+const AUTO_CONTINUE_ENABLED = AUTO_CONTINUE_MAX > 0 && (process.env.PI_AUTO_CONTINUE ?? "1") !== "0";
+
+// True iff `msg` is the bridge's stream-idle pause. Matches the rateLimitType
+// tag first, then the error-message signature as a fallback in case the custom
+// field is dropped when the message is persisted and re-read.
+function isStreamIdlePause(msg: unknown): boolean {
+	const m = msg as { role?: string; rateLimitType?: string; stopReason?: string; errorMessage?: string } | null;
+	if (!m || m.role !== "assistant") return false;
+	if (m.rateLimitType === "stream_idle") return true;
+	return m.stopReason === "error" && typeof m.errorMessage === "string" && /stream idle timeout/i.test(m.errorMessage);
+}
+
+function lastAssistantMessage(ctx: ExtensionContext): unknown {
+	const entries = ctx.sessionManager.getEntries();
+	for (let i = entries.length - 1; i >= 0; i--) {
+		const e = entries[i] as { type?: string; message?: { role?: string } };
+		if (e?.type === "message" && e.message?.role === "assistant") return e.message;
+	}
+	return undefined;
+}
+
+// Registered against APIs newer than the pinned @mariozechner type devDep
+// (runtime pi is @earendil-works 0.80+, which has agent_settled / isIdle /
+// sendUserMessage). Cast so `tsc --noEmit` stays green against the older types.
+function installAutoContinue(pi: ExtensionAPI): void {
+	if (!AUTO_CONTINUE_ENABLED) return;
+	const anyPi = pi as unknown as {
+		on: (event: string, handler: (event: unknown, ctx: ExtensionContext) => unknown) => void;
+		sendUserMessage: (content: string) => void;
+	};
+
+	let attempts = 0; // consecutive auto-continues sent in the current paused streak
+	let timer: ReturnType<typeof setTimeout> | undefined;
+	let runMsg: unknown; // freshest assistant message of the current / just-ended run
+	const clearTimer = () => { if (timer) { clearTimeout(timer); timer = undefined; } };
+	const capture = (msg: unknown) => { if ((msg as { role?: string })?.role === "assistant") runMsg = msg; };
+	const isIdle = (ctx: ExtensionContext) => (ctx as unknown as { isIdle: () => boolean }).isIdle();
+
+	// A run began — our own continue, or the user taking over. Cancel any pending
+	// nudge (if it's the user, we must not also fire), and capture afresh. This
+	// cancellation is what makes the timer safe: it only fires when nothing else
+	// started during the wait, so the paused state still holds.
+	anyPi.on("agent_start", () => { clearTimer(); runMsg = undefined; });
+	anyPi.on("turn_end", (e) => capture((e as { message?: unknown }).message));
+	anyPi.on("message_end", (e) => capture((e as { message?: unknown }).message));
+	anyPi.on("agent_end", (e) => {
+		const msgs = (e as { messages?: unknown[] }).messages;
+		if (Array.isArray(msgs)) for (const m of msgs) capture(m);
+	});
+
+	anyPi.on("agent_settled", (_e, ctx) => {
+		if (!ctx.hasUI) return; // interactive sessions only
+		if (!isStreamIdlePause(runMsg ?? lastAssistantMessage(ctx))) { attempts = 0; clearTimer(); return; }
+		if (!isIdle(ctx)) return; // pi/another extension is still running
+		if (attempts >= AUTO_CONTINUE_MAX) {
+			clearTimer();
+			ctx.ui.notify(`Auto-continue: paused turn didn't recover after ${AUTO_CONTINUE_MAX} attempts — type "continue" to resume.`, "warning");
+			return;
+		}
+		const delay = Math.min(AUTO_CONTINUE_MAX_MS, AUTO_CONTINUE_BASE_MS * 2 ** attempts);
+		clearTimer();
+		ctx.ui.notify(`Auto-continue: stream-idle pause — resuming in ${Math.round(delay / 1000)}s (attempt ${attempts + 1}/${AUTO_CONTINUE_MAX}).`, "info");
+		timer = setTimeout(() => {
+			timer = undefined;
+			if (!isIdle(ctx)) { attempts = 0; return; } // a new run took over while we waited
+			attempts += 1;
+			anyPi.sendUserMessage(AUTO_CONTINUE_TEXT);
+		}, delay);
+		(timer as { unref?: () => void }).unref?.();
+	});
+
+	anyPi.on("session_start", () => { clearTimer(); attempts = 0; runMsg = undefined; });
+	anyPi.on("session_shutdown", () => { clearTimer(); attempts = 0; runMsg = undefined; });
+}
+
 // --- Extension entry point -------------------------------------------------
 
 export default function (pi: ExtensionAPI) {
+	installAutoContinue(pi);
 	let pollTimer: ReturnType<typeof setInterval> | undefined;
 	let footerInstalled = false;
 
