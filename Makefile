@@ -4,6 +4,8 @@
 #   make install                    # install to ~/.local/bin (no sudo)
 #   make install PREFIX=/usr/local  # install to /usr/local/bin
 #   make build                      # just build the release binary
+#   make install-slim               # install, then reclaim the build cache
+#   make slim                       # reclaim the ~600 MB Rust build cache
 #   make uninstall                  # remove the installed binaries
 #
 # Re-run on any machine that has Rust installed to reproduce the setup.
@@ -12,7 +14,7 @@ PREFIX ?= $(HOME)/.local
 BIN_DIR := $(PREFIX)/bin
 REPO_DIR := $(CURDIR)
 
-.PHONY: all build install uninstall
+.PHONY: all build install install-slim slim uninstall
 
 all: build
 
@@ -58,6 +60,20 @@ install: build
 	@echo "3. Switch anytime:"
 	@echo "     claude-switcher            # interactive TUI"
 	@echo "     claude-switcher switch work"
+
+# Reclaim the Rust build cache (target/, ~600 MB). Safe: the installed binary
+# is a standalone copy in $(BIN_DIR) — cleaning only affects the speed of the
+# NEXT build, never the installed tool's behavior or performance. Rebuild with
+# `make build` (or `make install`).
+slim:
+	@echo "==> Reclaiming build cache (cargo clean)"
+	@cargo clean
+	@echo "Done — target/ cleared. Rebuild anytime with 'make build'."
+
+# Build + install the standalone binary, then drop the build cache. Steady-state
+# footprint is just the installed binary (~1 MB); updating recompiles from
+# scratch (a minute or two).
+install-slim: install slim
 
 uninstall:
 	@echo "==> Removing from $(BIN_DIR)"

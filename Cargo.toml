@@ -35,3 +35,9 @@ filetime = "0.2"
 strip = true
 lto = true
 opt-level = "z"
+
+[profile.dev]
+# Line tables keep backtraces (file:line) and let tests run normally, but drop
+# the full DWARF that otherwise bloats the debug build cache — target/debug
+# shrinks dramatically with no impact on functionality or on the release build.
+debug = "line-tables-only"
