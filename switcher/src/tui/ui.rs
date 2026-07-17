@@ -156,6 +156,9 @@ fn detailed_item(p: &Profile, state: Option<&UsageState>, width: usize) -> ListI
     if !p.authenticated {
         tags.push("not signed in");
     }
+    if p.email_mismatch().is_some() {
+        tags.push("WRONG ACCOUNT");
+    }
     let right = if tags.is_empty() {
         format!("last used {}", humanize(p.last_used))
     } else {

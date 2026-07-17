@@ -16,7 +16,13 @@ pub struct Profile {
     /// Portable, `~`-relative path as stored in metadata.
     pub raw_path: String,
     pub last_used: Option<DateTime<Utc>>,
+    /// The account signed into the directory right now (live from `.claude.json`),
+    /// falling back to the bound `expected_email` when nothing is detected.
     pub email: Option<String>,
+    /// The account this profile is *bound* to — its stored identity, set once
+    /// (at add/adopt/first sign-in) and never silently rebound. Diverges from
+    /// `email` only when the directory has been signed into the wrong account.
+    pub expected_email: Option<String>,
     /// Brief plan label, e.g. "Pro", "Max 5x", "Team".
     pub plan: Option<String>,
     pub exists: bool,
@@ -32,6 +38,18 @@ impl Profile {
             (Some(e), None) => Some(e.clone()),
             (None, Some(p)) => Some(p.clone()),
             (None, None) => None,
+        }
+    }
+
+    /// Detects a wrong login: the directory is signed into a *different* account
+    /// than the one this profile is bound to. Returns `(signed_in, expected)` —
+    /// e.g. signing into the `takeyoung` profile as `paul@nhost.io` yields
+    /// `("paul@nhost.io", "takeyoung@gmail.com")`. `None` when they match, or when
+    /// the profile isn't bound yet, or nothing is signed in.
+    pub fn email_mismatch(&self) -> Option<(&str, &str)> {
+        match (self.email.as_deref(), self.expected_email.as_deref()) {
+            (Some(cur), Some(exp)) if cur != exp => Some((cur, exp)),
+            _ => None,
         }
     }
 }

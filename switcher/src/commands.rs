@@ -146,6 +146,9 @@ fn list(mgr: &Manager, json: bool) -> Result<()> {
         println!("      last used:     {}", humanize(p.last_used));
         println!("      directory:     {}", if p.exists { "present" } else { "MISSING" });
         println!("      authenticated: {}", if p.authenticated { "yes" } else { "no" });
+        if let Some((cur, exp)) = p.email_mismatch() {
+            println!("      ⚠ WRONG ACCOUNT: signed in as {cur}, but this profile is {exp}");
+        }
     }
     Ok(())
 }
@@ -212,6 +215,9 @@ fn usage(mgr: &mut Manager, json: bool) -> Result<()> {
             header.push_str(&format!(" ({id})"));
         }
         println!("{header}");
+        if let Some((cur, exp)) = p.email_mismatch() {
+            println!("      ⚠ WRONG ACCOUNT: signed in as {cur}, but this profile is {exp}");
+        }
         match usage {
             Some(u) => {
                 if *is_cached {
@@ -262,6 +268,8 @@ fn usage_json(p: &Profile, usage: Option<&crate::usage::Usage>, cached: bool) ->
     serde_json::json!({
         "name": p.name,
         "email": p.email,
+        "expectedEmail": p.expected_email,
+        "emailMismatch": p.email_mismatch().is_some(),
         "plan": p.plan,
         "active": p.active,
         "available": usage.is_some(),
@@ -273,9 +281,13 @@ fn usage_json(p: &Profile, usage: Option<&crate::usage::Usage>, cached: bool) ->
 }
 
 fn describe(p: &Profile) -> String {
-    match p.identity() {
+    let base = match p.identity() {
         Some(id) => format!("{} ({id})", p.name),
         None => p.name.clone(),
+    };
+    match p.email_mismatch() {
+        Some((cur, exp)) => format!("{base}  ⚠ signed in as {cur}, expected {exp}"),
+        None => base,
     }
 }
 
@@ -342,6 +354,8 @@ fn profiles_to_json(profiles: &[Profile]) -> String {
                 "name": p.name,
                 "path": p.raw_path,
                 "email": p.email,
+                "expectedEmail": p.expected_email,
+                "emailMismatch": p.email_mismatch().is_some(),
                 "plan": p.plan,
                 "active": p.active,
                 "exists": p.exists,

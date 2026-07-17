@@ -118,6 +118,7 @@ impl Manager {
                 Profile {
                     name: m.name.clone(),
                     email: account.email.clone().or_else(|| m.email.clone()),
+                    expected_email: m.email.clone(),
                     plan: account.plan.clone(),
                     raw_path: m.path.clone(),
                     last_used,
@@ -456,14 +457,26 @@ impl Manager {
     }
 
     /// Refresh the cached email for a profile from its `.claude.json`.
+    ///
+    /// The stored email is the profile's *bound identity*. We set it on the
+    /// first sign-in (or re-affirm it when the same account signs in again), but
+    /// we never silently rebind an already-bound profile to a *different*
+    /// account: signing into the `takeyoung` profile as `paul@nhost.io` is a
+    /// mistake, so we keep the bound account and leave the mismatch for the read
+    /// commands to surface (see [`Profile::email_mismatch`]). Without this guard
+    /// a wrong login would overwrite the profile's identity in `profiles.json`.
     fn refresh_email(&mut self, name: &str) {
         let (path, home) = match self.meta.find(name) {
             Some(m) => (self.paths.expand(&m.path), self.paths.home.clone()),
             None => return,
         };
-        if let Some(email) = detect::inspect(&path, &home).email {
-            if let Some(m) = self.meta.find_mut(name) {
-                m.email = Some(email);
+        let Some(detected) = detect::inspect(&path, &home).email else {
+            return;
+        };
+        if let Some(m) = self.meta.find_mut(name) {
+            match &m.email {
+                Some(bound) if *bound != detected => {} // wrong account signed in — keep the binding
+                _ => m.email = Some(detected),          // first bind, or same account re-affirmed
             }
         }
     }
@@ -524,6 +537,48 @@ mod tests {
         let mgr = Manager::load(paths).unwrap();
         let names: Vec<String> = mgr.discover_candidates().into_iter().map(|(n, _)| n).collect();
         assert_eq!(names, vec!["work".to_string()]);
+    }
+
+    #[test]
+    fn wrong_login_does_not_rebind_a_profile() {
+        let home = tempfile::tempdir().unwrap();
+        let config = tempfile::tempdir().unwrap();
+        let paths = Paths::with_roots(home.path(), config.path());
+        let mut mgr = Manager::load(paths).unwrap();
+
+        // Adopt a directory signed into takeyoung@gmail.com — binds that identity.
+        let dir = home.path().join(".claude-takeyoung");
+        std::fs::create_dir(&dir).unwrap();
+        let write_account = |email: &str| {
+            std::fs::write(
+                dir.join(".claude.json"),
+                format!(r#"{{"oauthAccount":{{"emailAddress":"{email}"}}}}"#),
+            )
+            .unwrap();
+        };
+        write_account("takeyoung@gmail.com");
+        mgr.adopt("takeyoung", &dir, true).unwrap();
+        assert_eq!(mgr.meta.find("takeyoung").unwrap().email.as_deref(), Some("takeyoung@gmail.com"));
+
+        // A wrong login rewrites the dir to a *different* account.
+        write_account("paul@nhost.io");
+        mgr.switch("takeyoung").unwrap(); // triggers refresh_email
+
+        // The bound identity in metadata must be untouched...
+        assert_eq!(
+            mgr.meta.find("takeyoung").unwrap().email.as_deref(),
+            Some("takeyoung@gmail.com"),
+            "a wrong login must not rebind the profile's account"
+        );
+        // ...but the runtime view flags the mismatch.
+        let p = mgr.profiles().into_iter().find(|p| p.name == "takeyoung").unwrap();
+        assert_eq!(p.email_mismatch(), Some(("paul@nhost.io", "takeyoung@gmail.com")));
+
+        // Signing back into the correct account clears the mismatch.
+        write_account("takeyoung@gmail.com");
+        mgr.switch("takeyoung").unwrap();
+        let p = mgr.profiles().into_iter().find(|p| p.name == "takeyoung").unwrap();
+        assert_eq!(p.email_mismatch(), None);
     }
 
     #[test]
