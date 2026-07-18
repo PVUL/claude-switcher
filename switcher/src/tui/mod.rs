@@ -5,8 +5,10 @@ mod ui;
 
 use std::io::{self, Stdout};
 
+use crossterm::cursor::MoveTo;
 use crossterm::event::{self, Event, KeyCode, KeyEvent, KeyEventKind, KeyModifiers};
-use crossterm::terminal::{disable_raw_mode, enable_raw_mode};
+use crossterm::execute;
+use crossterm::terminal::{disable_raw_mode, enable_raw_mode, Clear, ClearType};
 use ratatui::backend::CrosstermBackend;
 use ratatui::{Terminal, TerminalOptions, Viewport};
 
@@ -24,6 +26,11 @@ pub fn run(manager: &mut Manager) -> Result<()> {
     }
 
     let mut app = App::new(manager);
+    // Start on a clean screen: clear the terminal and home the cursor so the
+    // inline viewport anchors at the top rather than wherever the shell prompt
+    // happened to sit. Clear::All (not Purge) keeps the prior output in
+    // scrollback, so scrolling up still recovers it.
+    execute!(io::stdout(), Clear(ClearType::All), MoveTo(0, 0))?;
     // The inline viewport's height is fixed at creation, so toggling the view
     // mode (which changes the per-profile height) rebuilds the terminal at the
     // new size while `app` — selection, usage, timers — lives across rebuilds.

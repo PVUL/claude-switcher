@@ -12,7 +12,8 @@ use ratatui::text::{Line, Span};
 use ratatui::widgets::{Block, Borders, HighlightSpacing, List, ListItem, ListState, Paragraph};
 use ratatui::Frame;
 
-use crate::commands::humanize;
+use chrono::{DateTime, Utc};
+
 use crate::profile::Profile;
 
 use super::app::{App, InputAction, Mode, UsageState};
@@ -20,6 +21,9 @@ use super::app::{App, InputAction, Mode, UsageState};
 const ACCENT: Color = Color::Cyan;
 /// Muted dark-gray background for the selected row (256-color index).
 const SELECTION_BG: Color = Color::Indexed(237);
+/// Muted steel-blue for the header line (title, timestamp, toggle) so it recedes
+/// and the account rows below draw the eye. Not too bright (256-color #5f87af).
+const HEADER: Color = Color::Indexed(67);
 
 /// Style for secondary text. Dims the terminal's *own* foreground rather than
 /// using a fixed grey, so it stays legible on any background (a fixed grey
@@ -64,23 +68,30 @@ pub fn draw(f: &mut Frame, app: &App) {
     draw_footer(f, chunks[1], app);
 }
 
-/// The header, rendered onto the list block's top border: the app name, the
-/// last-updated time, and the auto-refresh toggle. The toggle is a focusable
-/// "row" (Enter toggles it); when focused it highlights here and no profile row
-/// is, so the list stays easy to read. Folding this onto the border drops the
-/// separate title bar, saving two lines of height.
-fn header_title(app: &App) -> Line<'static> {
+/// The header, split across the list block's top border: the app name pinned to
+/// the left, and the last-updated time + auto-refresh toggle pinned to the
+/// right, with the border rule filling the gap between them. The toggle is a
+/// focusable "row" (Enter toggles it); when focused it highlights here and no
+/// profile row is, so the list stays easy to read. Folding this onto the border
+/// drops the separate title bar, saving two lines of height.
+fn header_titles(app: &App) -> (Line<'static>, Line<'static>) {
+    // Only the app name carries the muted blue; the timestamp and toggle are
+    // dimmed grey so they stay in the background.
     let toggle_style = if app.header_focused() {
         Style::default().bg(SELECTION_BG).fg(ACCENT).add_modifier(Modifier::BOLD)
     } else {
         secondary()
     };
     let marker = if app.header_focused() { "› " } else { "" };
-    Line::from(vec![
-        Span::styled(" Claude Switcher ", Style::default().add_modifier(Modifier::BOLD)),
+    let left = Line::from(Span::styled(
+        " Claude Switcher ",
+        Style::default().fg(HEADER).add_modifier(Modifier::BOLD),
+    ));
+    let right = Line::from(vec![
         Span::styled(format!(" {} ", app.updated_label()), secondary()),
         Span::styled(format!(" {marker}{} ", app.auto_refresh_label()), toggle_style),
-    ])
+    ]);
+    (left, right)
 }
 
 fn draw_list(f: &mut Frame, area: Rect, app: &App) {
@@ -109,8 +120,14 @@ fn draw_list(f: &mut Frame, area: Rect, app: &App) {
         state.select(Some(i));
     }
 
+    let (left_title, right_title) = header_titles(app);
     let list = List::new(items)
-        .block(Block::default().borders(Borders::ALL).title(header_title(app)))
+        .block(
+            Block::default()
+                .borders(Borders::ALL)
+                .title_top(left_title)
+                .title_top(right_title.right_aligned()),
+        )
         // Keep the text fully legible: just a marker + bold, no washed-out
         // background or reversed colors.
         .highlight_style(Style::default().add_modifier(Modifier::BOLD))
@@ -121,10 +138,32 @@ fn draw_list(f: &mut Frame, area: Rect, app: &App) {
     f.render_stateful_widget(list, area, &mut state);
 }
 
-/// The three-line profile row: the name (+ identity) with the last-used time
-/// (and any status tags) flushed to the right edge on the same line, then the
-/// 5h and 7d usage bars. `width` is the row's usable text width, used to pad
-/// the name line so the right-hand text sits against the right border.
+/// Compact "used 3m ago" phrasing for a profile's last-used time, shown inline
+/// after the plan. Abbreviates the unit (m / h / d) to keep the row narrow; a
+/// profile that's never been switched to reads "unused".
+fn used_label(ts: Option<DateTime<Utc>>) -> String {
+    let Some(ts) = ts else {
+        return "unused".to_string();
+    };
+    let secs = Utc::now().signed_duration_since(ts).num_seconds();
+    if secs < 60 {
+        return "used just now".to_string();
+    }
+    let (n, unit) = if secs < 3_600 {
+        (secs / 60, 'm')
+    } else if secs < 86_400 {
+        (secs / 3_600, 'h')
+    } else {
+        (secs / 86_400, 'd')
+    };
+    format!("used {n}{unit} ago")
+}
+
+/// The three-line profile row: the name, plan, and a compact inline used-time
+/// (e.g. "paul-nhost (Team) used 3m ago"), with any status tags flushed to the
+/// right edge on the same line, then the 5h and 7d usage bars. `width` is the
+/// row's usable text width, used to pad the name line so the tags sit against
+/// the right border.
 fn detailed_item(p: &Profile, state: Option<&UsageState>, width: usize) -> ListItem<'static> {
     let check = if p.active { "✓ " } else { "  " };
     let mut left = vec![
@@ -141,12 +180,16 @@ fn detailed_item(p: &Profile, state: Option<&UsageState>, width: usize) -> ListI
             }),
         ),
     ];
-    if let Some(id) = p.identity() {
-        left.push(Span::styled(format!(" ({id})"), secondary()));
+    // Show just the plan (Pro / Team / Max) after the name, not the email —
+    // keeps the row focused on the account rather than the login address.
+    if let Some(plan) = &p.plan {
+        left.push(Span::styled(format!(" ({plan})"), secondary()));
     }
+    // The last-used time sits inline right after the plan, e.g. "(Team) used 3m
+    // ago" — compact, and folded onto the name line to keep the row height low.
+    left.push(Span::styled(format!(" {}", used_label(p.last_used)), secondary()));
 
-    // Right-aligned trailer: any status tags, then the last-used time. Folding
-    // this onto the name line drops a whole row from every profile's height.
+    // Any status tags stay flushed to the right edge so the warnings stand out.
     let mut tags = Vec::new();
     if !p.exists {
         tags.push("MISSING DIR");
@@ -157,28 +200,26 @@ fn detailed_item(p: &Profile, state: Option<&UsageState>, width: usize) -> ListI
     if p.email_mismatch().is_some() {
         tags.push("WRONG ACCOUNT");
     }
-    let right = if tags.is_empty() {
-        format!("last used {}", humanize(p.last_used))
-    } else {
-        format!("[{}] · last used {}", tags.join(", "), humanize(p.last_used))
-    };
 
-    // Fill the gap between the left text and the right trailer with spaces so
-    // the trailer is right-aligned; keep at least one space if the row is tight.
-    let left_cols: usize = left.iter().map(|s| s.content.chars().count()).sum();
-    let pad = width.saturating_sub(left_cols + right.chars().count()).max(1);
+    // Pad so the tags (if any) sit against the right edge; a tag-free row just
+    // ends after the inline used-time.
     let mut spans = left;
-    spans.push(Span::raw(" ".repeat(pad)));
-    spans.push(Span::styled(right, secondary()));
+    if !tags.is_empty() {
+        let right = format!("[{}]", tags.join(", "));
+        let left_cols: usize = spans.iter().map(|s| s.content.chars().count()).sum();
+        let pad = width.saturating_sub(left_cols + right.chars().count()).max(1);
+        spans.push(Span::raw(" ".repeat(pad)));
+        spans.push(Span::styled(right, secondary()));
+    }
 
     let mut lines = vec![Line::from(spans)];
     append_usage_lines(&mut lines, state);
     ListItem::new(lines)
 }
 
-/// A single compact row: `✓ alias  ██░░  25%  resets in 3h 36m (2:50pm)`. The
-/// alias is padded to `name_width` so bars align across rows; only the 5-hour
-/// window is shown.
+/// A single compact row: `✓ alias  ██░░  25%  3h 36m (2:50pm)`. The alias is
+/// padded to `name_width` so bars align across rows; only the 5-hour window is
+/// shown.
 fn compact_line(p: &Profile, state: Option<&UsageState>, name_width: usize) -> Line<'static> {
     let check = if p.active { "✓ " } else { "  " };
     let mut spans = vec![
@@ -289,15 +330,19 @@ fn threshold_color(pct: i64) -> Color {
     }
 }
 
-/// Widest relative-reset countdown we render (e.g. "resets in 23h 59m"). The
-/// countdown is left-padded to this so the "(clock)" that follows lines up in
-/// the same column on a profile's 5h and 7d rows.
-const RESET_REL_WIDTH: usize = 17;
+/// Widest relative-reset countdown we render without the "resets in " prefix
+/// (e.g. "23h 59m"). The countdown is left-padded to this so the "(clock)" that
+/// follows lines up in the same column on a profile's 5h and 7d rows.
+const RESET_REL_WIDTH: usize = 7;
 
-/// e.g. "resets in 3h 36m  (2:50pm)". The countdown is padded to a fixed width
-/// so the parenthesized clock time aligns vertically across the two rows.
+/// e.g. "3h 36m  (2:50pm)". Drops the "resets in " prefix the shared helper adds
+/// — in the TUI the bar context already implies it, and dropping it keeps rows
+/// narrow — then pads the countdown to a fixed width so the parenthesized clock
+/// aligns vertically across the two rows.
 fn reset_phrase(window: &crate::usage::Window) -> String {
-    match (crate::usage::resets_in(window), crate::usage::reset_clock(window)) {
+    let rel = crate::usage::resets_in(window)
+        .map(|s| s.strip_prefix("resets in ").unwrap_or(&s).to_string());
+    match (rel, crate::usage::reset_clock(window)) {
         (Some(rel), Some(clock)) => format!("{rel:<w$} ({clock})", w = RESET_REL_WIDTH),
         (Some(rel), None) => rel,
         _ => String::new(),
@@ -411,7 +456,7 @@ mod tests {
     }
 
     #[test]
-    fn detailed_view_puts_last_used_on_the_name_line() {
+    fn detailed_view_puts_used_time_inline_on_the_name_line() {
         let dir = tempdir().unwrap();
         let paths = Paths::with_roots(dir.path().join("home"), dir.path().join("cfg"));
         std::fs::create_dir_all(&paths.home).unwrap();
@@ -423,15 +468,27 @@ mod tests {
         terminal.draw(|f| draw(f, &app)).unwrap();
         let rows = rows(&terminal);
 
-        // The name and its last-used trailer share one row (no separate line).
+        // The name and its used-time share one row (no separate line). A fresh
+        // profile has never been switched to, so it reads "unused".
         let name_row = rows.iter().find(|r| r.contains("paul-nhost")).unwrap();
-        assert!(name_row.contains("last used"), "last-used sits on the name line");
-        // And it is flushed right: the name is left of the trailer on that row.
+        assert!(name_row.contains("unused"), "used-time sits on the name line");
+        // It sits inline right after the name (not flushed to the far right).
         let name_col = name_row.find("paul-nhost").map(|b| name_row[..b].chars().count());
-        let used_col = name_row.find("last used").map(|b| name_row[..b].chars().count());
-        assert!(used_col > name_col, "last-used is right of the name");
+        let used_col = name_row.find("unused").map(|b| name_row[..b].chars().count());
+        assert!(used_col > name_col, "used-time is right of the name");
         // No other row repeats it — the dedicated last-used line is gone.
-        assert_eq!(rows.iter().filter(|r| r.contains("last used")).count(), 1);
+        assert_eq!(rows.iter().filter(|r| r.contains("unused")).count(), 1);
+    }
+
+    #[test]
+    fn used_label_abbreviates_units() {
+        use chrono::Duration;
+        let now = Utc::now();
+        assert_eq!(used_label(None), "unused");
+        assert_eq!(used_label(Some(now)), "used just now");
+        assert_eq!(used_label(Some(now - Duration::minutes(3))), "used 3m ago");
+        assert_eq!(used_label(Some(now - Duration::hours(18))), "used 18h ago");
+        assert_eq!(used_label(Some(now - Duration::days(4))), "used 4d ago");
     }
 
     #[test]
