@@ -255,9 +255,9 @@ impl<'m> App<'m> {
 
     /// True when at least one profile has no usable usage on screen — either the
     /// lookup failed (`Unavailable`) or it came back with no windows, which the
-    /// UI shows as "n/a" for both the 5h and 7d rows. Lifts the manual-refresh
-    /// debounce so the user can retry right away instead of waiting a minute for
-    /// data that isn't showing anyway.
+    /// UI shows as an empty 0% bar for both the 5h and 7d rows. Lifts the
+    /// manual-refresh debounce so the user can retry right away instead of
+    /// waiting a minute for data that isn't showing anyway.
     fn usage_unavailable(&self) -> bool {
         self.usage.values().any(|s| match s {
             UsageState::Unavailable => true,
@@ -908,8 +908,9 @@ mod tests {
         }
         app.commit_input();
 
-        // A lookup that succeeded but returned no windows renders as "n/a" for
-        // both rows — there's nothing to protect, so it should bypass too.
+        // A lookup that succeeded but returned no windows renders as an empty
+        // 0% bar for both rows — there's nothing to protect, so it should bypass
+        // too.
         app.usage.insert(
             "solo".to_string(),
             UsageState::Ready(Usage { five_hour: None, seven_day: None, seven_day_opus: None }),
@@ -917,7 +918,7 @@ mod tests {
         app.manual_refresh();
         assert!(
             !app.status.as_deref().unwrap_or_default().contains("try again in"),
-            "empty (n/a) usage should bypass the cooldown, got {:?}",
+            "empty (0%) usage should bypass the cooldown, got {:?}",
             app.status
         );
         assert!(matches!(app.usage("solo"), Some(UsageState::Loading)));

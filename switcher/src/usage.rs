@@ -368,8 +368,9 @@ fn raw_call(token: &str) -> Option<Vec<u8>> {
 /// with a `{"type":"error",...}` body and a 200-ish status curl treats as
 /// success. Because every `RawUsage` field is optional, such a body would
 /// otherwise deserialize into an all-`None` `Usage` — a "present but empty"
-/// snapshot that renders as "n/a" and gets cached, hiding the real problem
-/// (a dead token) behind a confusing display for a whole poll interval. So we
+/// snapshot that renders as a misleading 0% and gets cached, hiding the real
+/// problem (a dead token) behind a confusing display for a whole poll interval.
+/// So we
 /// reject any error payload, and any body with no recognizable window at all,
 /// and report the profile as unavailable instead.
 fn parse_usage(body: &[u8]) -> Option<Usage> {
@@ -503,7 +504,7 @@ mod tests {
     #[test]
     fn rejects_error_bodies_instead_of_reporting_empty_usage() {
         // An expired/invalid token yields this shape with a status curl treats
-        // as success. It must be unavailable, not a cacheable all-n/a Usage.
+        // as success. It must be unavailable, not a cacheable all-empty Usage.
         let err = br#"{"type":"error","error":{"type":"authentication_error","message":"Invalid bearer token"}}"#;
         assert!(parse_usage(err).is_none());
 

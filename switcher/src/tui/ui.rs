@@ -1,6 +1,7 @@
 //! Rendering. Pure function of `App` state onto a ratatui `Frame`.
 //!
-//! The UI is deliberately compact: a title line, the profile list, and a single
+//! The UI is deliberately compact: the profile list (its top border carries the
+//! header — app name, last-updated time, auto-refresh toggle) and a single
 //! footer line that doubles as the prompt for add / rename / delete, so the
 //! whole thing fits in a small inline viewport rather than taking over the
 //! terminal.
@@ -27,8 +28,9 @@ fn secondary() -> Style {
     Style::default().add_modifier(Modifier::DIM)
 }
 
-/// Chrome that surrounds the profile list (borders + title + footer lines).
-pub const CHROME_LINES: u16 = 6;
+/// Chrome around the profile list: the list block's two borders (its top border
+/// doubles as the header) plus the one footer line.
+pub const CHROME_LINES: u16 = 3;
 /// Each profile occupies this many rows: the name row (with last-used aligned
 /// right), then the 5h and 7d usage bars.
 pub const ROWS_PER_PROFILE: u16 = 3;
@@ -53,36 +55,32 @@ pub fn draw(f: &mut Frame, app: &App) {
     let chunks = Layout::default()
         .direction(Direction::Vertical)
         .constraints([
-            Constraint::Length(3), // title
-            Constraint::Min(2),    // profile list
+            Constraint::Min(2),    // profile list (top border carries the header)
             Constraint::Length(1), // footer / prompt
         ])
         .split(clamp_width(f.area()));
 
-    draw_title(f, chunks[0], app);
-    draw_list(f, chunks[1], app);
-    draw_footer(f, chunks[2], app);
+    draw_list(f, chunks[0], app);
+    draw_footer(f, chunks[1], app);
 }
 
-fn draw_title(f: &mut Frame, area: Rect, app: &App) {
-    // Single left-aligned line: title, last-updated time, then the auto-refresh
-    // toggle just after it (a focusable "row" — Enter toggles it). When focused
-    // it highlights here and no profile row is, so the list stays easy to read.
+/// The header, rendered onto the list block's top border: the app name, the
+/// last-updated time, and the auto-refresh toggle. The toggle is a focusable
+/// "row" (Enter toggles it); when focused it highlights here and no profile row
+/// is, so the list stays easy to read. Folding this onto the border drops the
+/// separate title bar, saving two lines of height.
+fn header_title(app: &App) -> Line<'static> {
     let toggle_style = if app.header_focused() {
         Style::default().bg(SELECTION_BG).fg(ACCENT).add_modifier(Modifier::BOLD)
     } else {
         secondary()
     };
     let marker = if app.header_focused() { "› " } else { "" };
-    let line = Line::from(vec![
-        Span::styled(" Claude Switcher", Style::default().add_modifier(Modifier::BOLD)),
-        Span::raw("   "),
-        Span::styled(app.updated_label(), secondary()),
-        Span::raw("    "),
-        Span::styled(format!("{marker}{}", app.auto_refresh_label()), toggle_style),
-    ]);
-    let p = Paragraph::new(line).block(Block::default().borders(Borders::ALL));
-    f.render_widget(p, area);
+    Line::from(vec![
+        Span::styled(" Claude Switcher ", Style::default().add_modifier(Modifier::BOLD)),
+        Span::styled(format!(" {} ", app.updated_label()), secondary()),
+        Span::styled(format!(" {marker}{} ", app.auto_refresh_label()), toggle_style),
+    ])
 }
 
 fn draw_list(f: &mut Frame, area: Rect, app: &App) {
@@ -112,7 +110,7 @@ fn draw_list(f: &mut Frame, area: Rect, app: &App) {
     }
 
     let list = List::new(items)
-        .block(Block::default().borders(Borders::ALL).title(" Accounts "))
+        .block(Block::default().borders(Borders::ALL).title(header_title(app)))
         // Keep the text fully legible: just a marker + bold, no washed-out
         // background or reversed colors.
         .highlight_style(Style::default().add_modifier(Modifier::BOLD))
@@ -203,22 +201,27 @@ fn compact_line(p: &Profile, state: Option<&UsageState>, name_width: usize) -> L
 }
 
 /// The usage portion of a compact row: the 5-hour bar with its reset time, or a
-/// loading / unavailable / n-a placeholder.
+/// loading / unavailable placeholder. A fetched-but-missing 5-hour window is
+/// shown as an empty 0% bar (a missing window means no usage on record) rather
+/// than "n/a".
 fn compact_usage_spans(state: Option<&UsageState>) -> Vec<Span<'static>> {
     let dim = secondary();
     match state {
-        Some(UsageState::Ready(u)) | Some(UsageState::Cached(u)) => match u.five_hour.as_ref() {
-            Some(w) => {
-                let pct = w.utilization.round() as i64;
-                let color = threshold_color(pct);
-                vec![
-                    Span::styled(crate::usage::bar(w.utilization, 16), Style::default().fg(color)),
-                    Span::styled(format!(" {pct:>3}%"), Style::default().fg(color)),
-                    Span::styled(format!("  {}", reset_phrase(w)), dim),
-                ]
+        Some(UsageState::Ready(u)) | Some(UsageState::Cached(u)) => {
+            let util = u.five_hour.as_ref().map_or(0.0, |w| w.utilization);
+            let pct = util.round() as i64;
+            let color = threshold_color(pct);
+            let mut spans = vec![
+                Span::styled(crate::usage::bar(util, 16), Style::default().fg(color)),
+                Span::styled(format!(" {pct:>3}%"), Style::default().fg(color)),
+            ];
+            // A real window carries a reset time; a missing one (0%) has
+            // nothing to count down to, so we leave the reset phrase off.
+            if let Some(w) = u.five_hour.as_ref() {
+                spans.push(Span::styled(format!("  {}", reset_phrase(w)), dim));
             }
-            None => vec![Span::styled("5h n/a", dim)],
-        },
+            spans
+        }
         Some(UsageState::Loading) | None => vec![Span::styled("usage …", dim)],
         Some(UsageState::Unavailable) => vec![Span::styled("usage unavailable", dim)],
     }
@@ -252,17 +255,21 @@ fn window_bar_line(
     opus: Option<&crate::usage::Window>,
 ) -> Line<'static> {
     let dim = secondary();
-    let Some(w) = window else {
-        return Line::from(Span::styled(format!("     {label} n/a"), dim));
-    };
-    let pct = w.utilization.round() as i64;
+    // A window we couldn't fetch is treated as freshly reset — an empty 0% bar
+    // rather than "n/a", since a missing window means no usage on record.
+    let util = window.map_or(0.0, |w| w.utilization);
+    let pct = util.round() as i64;
     let color = threshold_color(pct);
     let mut spans = vec![
         Span::styled(format!("     {label} "), dim),
-        Span::styled(crate::usage::bar(w.utilization, 16), Style::default().fg(color)),
+        Span::styled(crate::usage::bar(util, 16), Style::default().fg(color)),
         Span::styled(format!(" {pct:>3}%"), Style::default().fg(color)),
-        Span::styled(format!("  {}", reset_phrase(w)), dim),
     ];
+    // A real window carries a reset time; a missing one (0%) has nothing to
+    // count down to, so we leave the reset phrase off.
+    if let Some(w) = window {
+        spans.push(Span::styled(format!("  {}", reset_phrase(w)), dim));
+    }
     if let Some(o) = opus {
         spans.push(Span::styled(
             format!("  · opus {}%", o.utilization.round() as i64),
@@ -425,6 +432,52 @@ mod tests {
         assert!(used_col > name_col, "last-used is right of the name");
         // No other row repeats it — the dedicated last-used line is gone.
         assert_eq!(rows.iter().filter(|r| r.contains("last used")).count(), 1);
+    }
+
+    #[test]
+    fn header_sits_on_the_list_top_border() {
+        let dir = tempdir().unwrap();
+        let paths = Paths::with_roots(dir.path().join("home"), dir.path().join("cfg"));
+        std::fs::create_dir_all(&paths.home).unwrap();
+        let mut mgr = Manager::load(paths).unwrap();
+        mgr.add("paul-nhost", None).unwrap();
+
+        let app = App::new(&mut mgr);
+        let mut terminal = Terminal::new(TestBackend::new(MAX_WIDTH, 12)).unwrap();
+        terminal.draw(|f| draw(f, &app)).unwrap();
+        let rows = rows(&terminal);
+
+        // The header rides the list block's top border (row 0), not a separate
+        // title bar, so we don't spend two extra lines on it.
+        assert!(rows[0].contains("Claude Switcher"), "app name on the top border");
+        assert!(rows[0].contains("auto-refresh"), "toggle on the top border");
+        // The old dedicated " Accounts " title is gone.
+        assert!(!rows.iter().any(|r| r.contains("Accounts")), "no Accounts title");
+    }
+
+    #[test]
+    fn missing_window_renders_as_zero_percent_not_na() {
+        // Detailed row: a window we couldn't fetch reads as an empty 0% bar.
+        let text: String = window_bar_line("5h", None, None)
+            .spans
+            .iter()
+            .map(|s| s.content.as_ref())
+            .collect();
+        assert!(text.contains("0%"), "missing window shows 0%, got {text:?}");
+        assert!(!text.contains("n/a"), "no n/a placeholder, got {text:?}");
+
+        // Compact row: a Ready snapshot with no 5-hour window does the same.
+        let state = UsageState::Ready(crate::usage::Usage {
+            five_hour: None,
+            seven_day: None,
+            seven_day_opus: None,
+        });
+        let text: String = compact_usage_spans(Some(&state))
+            .iter()
+            .map(|s| s.content.as_ref())
+            .collect();
+        assert!(text.contains("0%"), "compact shows 0%, got {text:?}");
+        assert!(!text.contains("n/a"), "compact has no n/a, got {text:?}");
     }
 
     #[test]

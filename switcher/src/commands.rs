@@ -236,15 +236,13 @@ fn usage(mgr: &mut Manager, json: bool) -> Result<()> {
 }
 
 fn print_window(label: &str, window: Option<&crate::usage::Window>) {
-    match window {
-        Some(w) => {
-            let bar = crate::usage::bar(w.utilization, 20);
-            let pct = w.utilization.round() as i64;
-            let reset = reset_phrase(w);
-            println!("      {label:<7} [{bar}] {pct:>3}%   {reset}");
-        }
-        None => println!("      {label:<7} n/a"),
-    }
+    // A window we couldn't fetch is treated as freshly reset (0%) rather than
+    // "n/a" — a missing window means no usage on record.
+    let util = window.map_or(0.0, |w| w.utilization);
+    let bar = crate::usage::bar(util, 20);
+    let pct = util.round() as i64;
+    let reset = window.map(reset_phrase).unwrap_or_default();
+    println!("      {label:<7} [{bar}] {pct:>3}%   {reset}");
 }
 
 /// Combine relative and absolute reset info, e.g. "resets in 3h 36m (14:50)".
