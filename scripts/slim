@@ -1,0 +1,32 @@
+#!/usr/bin/env sh
+# Reclaim the Rust build cache (switcher/target, ~500 MB → 0). Safe: the
+# installed binary in ~/.local/bin is a standalone copy, so this only affects
+# the speed of the NEXT build, never the installed tool. Rebuild with
+# `make build` (or `make install`).
+#
+# Canonical reclaim used by both `make slim` and the post-commit hook; the hook
+# runs with a minimal PATH, so we can't assume cargo is on it.
+set -eu
+
+repo="$(CDPATH='' cd -- "$(dirname -- "$0")/.." && pwd)"
+target="$repo/switcher/target"
+
+if [ ! -d "$target" ]; then
+    echo "slim: nothing to reclaim ($target absent)"
+    exit 0
+fi
+
+# Git hooks inherit a minimal PATH; make sure a rustup/cargo install is reachable.
+case ":$PATH:" in
+    *":$HOME/.cargo/bin:"*) ;;
+    *) PATH="$HOME/.cargo/bin:$PATH" ;;
+esac
+
+before="$(du -sh "$target" 2>/dev/null | cut -f1)"
+if command -v cargo >/dev/null 2>&1; then
+    (cd "$repo/switcher" && cargo clean)
+else
+    # No cargo on PATH (unusual): fall back to a plain remove.
+    rm -rf "$target"
+fi
+echo "slim: reclaimed ${before:-the build cache} from switcher/target"

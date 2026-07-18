@@ -4,7 +4,7 @@
 .DEFAULT_GOAL := help
 BUN := bun
 
-.PHONY: help deps build install install-slim slim uninstall test check clean
+.PHONY: help deps build install install-slim slim uninstall test check clean install-hooks
 
 help: ## show this help
 	@grep -hE '^[a-zA-Z_-]+:.*?## ' $(MAKEFILE_LIST) | \
@@ -13,8 +13,12 @@ help: ## show this help
 deps: ## install extension deps (bun workspaces → one hoisted ./node_modules)
 	$(BUN) install
 
-build: deps ## cargo build --release (the TUI) + extension deps
+build: deps install-hooks ## cargo build --release (the TUI) + extension deps
 	cd switcher && cargo build --release
+
+install-hooks: ## wire git to the committed hooks (auto-slim target/ on a clean commit)
+	@git config core.hooksPath .githooks
+	@echo "git hooks active: post-commit reclaims switcher/target when the tree is clean"
 
 install: ## build + install the TUI (+ csw alias) to ~/.local/bin (see switcher/Makefile)
 	$(MAKE) -C switcher install
@@ -22,8 +26,8 @@ install: ## build + install the TUI (+ csw alias) to ~/.local/bin (see switcher/
 install-slim: ## install, then reclaim the Rust build cache
 	$(MAKE) -C switcher install-slim
 
-slim: ## reclaim the Rust build cache (target/)
-	$(MAKE) -C switcher slim
+slim: ## reclaim the Rust build cache (switcher/target)
+	@./scripts/slim
 
 uninstall: ## remove the installed binaries
 	$(MAKE) -C switcher uninstall

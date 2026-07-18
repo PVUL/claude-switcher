@@ -1,0 +1,28 @@
+#!/usr/bin/env sh
+# Auto-reclaim the build cache once a commit lands the tree in a clean state, so
+# the checkout drops back from ~500 MB to a few MB with no manual step.
+#
+# Only fires when nothing is left uncommitted (a "good state") — during a rapid
+# edit/commit loop the tree is usually dirty between commits, so the cache isn't
+# thrashed. Never blocks or fails the commit.
+#
+# Enable with `make install-hooks` (sets core.hooksPath to .githooks); `make
+# build` does this for you.
+set -u
+
+repo="$(git rev-parse --show-toplevel 2>/dev/null)" || exit 0
+git_dir="$(git rev-parse --git-dir 2>/dev/null)" || exit 0
+
+# Skip while a rebase/merge/cherry-pick is replaying commits.
+for state in rebase-merge rebase-apply MERGE_HEAD CHERRY_PICK_HEAD; do
+    if [ -e "$git_dir/$state" ]; then
+        exit 0
+    fi
+done
+
+# Only reclaim when the working tree is fully clean (a "good state").
+if [ -n "$(git status --porcelain)" ]; then
+    exit 0
+fi
+
+"$repo/scripts/slim" || true
