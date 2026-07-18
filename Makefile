@@ -4,7 +4,7 @@
 .DEFAULT_GOAL := help
 BUN := bun
 
-.PHONY: help deps build install install-slim slim uninstall test check clean install-hooks
+.PHONY: help deps build install install-keep install-slim slim uninstall test check clean install-hooks
 
 help: ## show this help
 	@grep -hE '^[a-zA-Z_-]+:.*?## ' $(MAKEFILE_LIST) | \
@@ -20,10 +20,13 @@ install-hooks: ## wire git to the committed hooks (auto-slim target/ on a clean 
 	@git config core.hooksPath .githooks
 	@echo "git hooks active: post-commit reclaims switcher/target when the tree is clean"
 
-install: ## build + install the TUI (+ csw alias) to ~/.local/bin (see switcher/Makefile)
+install: ## build + install the TUI (+ csw alias) to ~/.local/bin, then reclaim the build cache
 	$(MAKE) -C switcher install
 
-install-slim: ## install, then reclaim the Rust build cache
+install-keep: ## install but KEEP the build cache (fast dev iteration)
+	$(MAKE) -C switcher install-keep
+
+install-slim: ## alias for install (kept for muscle memory — install already slims)
 	$(MAKE) -C switcher install-slim
 
 slim: ## reclaim the Rust build cache (switcher/target)

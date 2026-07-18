@@ -1,10 +1,10 @@
 # Makefile — build and install claude-switcher + the claude-switcher-exec wrapper.
 #
 # Usage:
-#   make install                    # install to ~/.local/bin (no sudo)
+#   make install                    # install to ~/.local/bin + reclaim the build cache
 #   make install PREFIX=/usr/local  # install to /usr/local/bin
+#   make install-keep               # install but KEEP the build cache (fast dev iteration)
 #   make build                      # just build the release binary
-#   make install-slim               # install, then reclaim the build cache
 #   make slim                       # reclaim the ~600 MB Rust build cache
 #   make uninstall                  # remove the installed binaries
 #
@@ -14,7 +14,7 @@ PREFIX ?= $(HOME)/.local
 BIN_DIR := $(PREFIX)/bin
 REPO_DIR := $(CURDIR)
 
-.PHONY: all build install install-slim slim uninstall
+.PHONY: all build install install-keep install-slim slim uninstall
 
 all: build
 
@@ -26,7 +26,9 @@ build:
 	@echo "==> Building claude-switcher (release)"
 	@cargo build --release
 
-install: build
+# Install the standalone binary + wrapper, leaving the build cache in place —
+# the fast path when you're iterating and will rebuild again shortly.
+install-keep: build
 	@echo "==> Installing to $(BIN_DIR)"
 	@mkdir -p "$(BIN_DIR)"
 	@install -m 0755 "$(REPO_DIR)/target/release/claude-switcher" "$(BIN_DIR)/claude-switcher"
@@ -61,6 +63,13 @@ install: build
 	@echo "     claude-switcher            # interactive TUI"
 	@echo "     claude-switcher switch work"
 
+# Default install = install-keep + slim. You install to *use* the tool, not to
+# iterate: the standalone binary in $(BIN_DIR) doesn't need target/, and leaving
+# it just balloons the checkout by ~600 MB. Use `make install-keep` to install
+# without slimming while developing.
+install: install-keep
+	@$(MAKE) slim
+
 # Reclaim the Rust build cache (target/, ~600 MB). Safe: the installed binary
 # is a standalone copy in $(BIN_DIR) — cleaning only affects the speed of the
 # NEXT build, never the installed tool's behavior or performance. Rebuild with
@@ -70,10 +79,8 @@ slim:
 	@cargo clean
 	@echo "Done — target/ cleared. Rebuild anytime with 'make build'."
 
-# Build + install the standalone binary, then drop the build cache. Steady-state
-# footprint is just the installed binary (~1 MB); updating recompiles from
-# scratch (a minute or two).
-install-slim: install slim
+# Backward-compatible alias — `install` already reclaims the cache.
+install-slim: install
 
 uninstall:
 	@echo "==> Removing from $(BIN_DIR)"
