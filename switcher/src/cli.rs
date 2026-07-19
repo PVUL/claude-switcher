@@ -7,7 +7,7 @@ use clap::{Parser, Subcommand};
 #[derive(Parser, Debug)]
 #[command(
     name = "claude-switcher",
-    version,
+    version = crate::VERSION,
     about = "Switch between multiple isolated Claude Code accounts.",
     long_about = "claude-switcher manages several Claude Code configuration directories and \
 selects one with an atomic symlink at ~/.claude-switcher. Point CLAUDE_CONFIG_DIR (or the \

@@ -21,6 +21,12 @@ use cli::{Cli, Command};
 use manager::Manager;
 use paths::Paths;
 
+/// The running build's version, baked in by build.rs (git describe on
+/// `make install`, or the pinned release tag nix passes on the box). Shown by
+/// `--version` and in the TUI header so every machine can answer "which
+/// version?" — and so trzq can compare the installed binary against latest.
+pub const VERSION: &str = env!("CLAUDE_SWITCHER_VERSION_STR");
+
 fn main() -> ExitCode {
     let cli = Cli::parse();
     match run(cli) {

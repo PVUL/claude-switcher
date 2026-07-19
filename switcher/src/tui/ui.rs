@@ -83,10 +83,16 @@ fn header_titles(app: &App) -> (Line<'static>, Line<'static>) {
         secondary()
     };
     let marker = if app.header_focused() { "› " } else { "" };
-    let left = Line::from(Span::styled(
-        " Claude Switcher ",
-        Style::default().fg(HEADER).add_modifier(Modifier::BOLD),
-    ));
+    // Version rides next to the title (dimmed) so opening the TUI always answers
+    // "which build am I on?" — the gap that let a machine run a stale binary
+    // unnoticed while everything reported "synced".
+    let left = Line::from(vec![
+        Span::styled(
+            " Claude Switcher ",
+            Style::default().fg(HEADER).add_modifier(Modifier::BOLD),
+        ),
+        Span::styled(format!("{} ", crate::VERSION), secondary()),
+    ]);
     let right = Line::from(vec![
         Span::styled(format!(" {} ", app.updated_label()), secondary()),
         Span::styled(format!(" {marker}{} ", app.auto_refresh_label()), toggle_style),
